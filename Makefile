@@ -14,13 +14,23 @@ export PATH := $(RUST_BIN):$(PATH)
 # keg-only, so plain `zig` may not resolve.
 export ZIG := $(shell command -v zig 2>/dev/null || echo /opt/homebrew/opt/zig@0.15/bin/zig)
 
-.PHONY: build build-release run run-release run-dev stop-dev test check
+.PHONY: build build-release install run run-release run-dev stop-dev test check
 
 build:
 	cargo build
 
 build-release:
 	cargo build --release
+
+# Symlink the release binary as the daily `herdr` command. fish_user_paths
+# puts ~/.config/gohan/bin first, so this shadows the brew install; remove
+# the symlink to fall back to it.
+install: build-release
+	@dest=$(HOME)/.config/gohan/bin/herdr; \
+	if [ -e "$$dest" ] && [ ! -L "$$dest" ]; then \
+		echo "refusing to overwrite real file at $$dest"; exit 1; \
+	fi; \
+	ln -sfn $(CURDIR)/target/release/herdr $$dest && echo "installed: $$dest -> $(CURDIR)/target/release/herdr"
 
 # Debug builds are sandboxed into ~/.config/herdr-dev (own config + state),
 # so this never touches the real sessions.
