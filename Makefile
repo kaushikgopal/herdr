@@ -14,7 +14,22 @@ export PATH := $(RUST_BIN):$(PATH)
 # keg-only, so plain `zig` may not resolve.
 export ZIG := $(shell command -v zig 2>/dev/null || echo /opt/homebrew/opt/zig@0.15/bin/zig)
 
-.PHONY: build build-release install run run-release run-dev stop-dev test check
+GRAY := \033[1;30m
+NC := \033[0m
+
+.PHONY: help build build-release install run run-release run-dev stop-dev test check
+
+help:
+	@printf "%b\n" "$(GRAY)Targets:$(NC)"
+	@printf "%b\n" "$(GRAY)  make build         # debug build (sandboxed binary in target/debug)$(NC)"
+	@printf "%b\n" "$(GRAY)  make run           # debug build + attach (herdr-dev sandbox: own config/state)$(NC)"
+	@printf "%b\n" "$(GRAY)  make build-release # release build (real config/sessions binary)$(NC)"
+	@printf "%b\n" "$(GRAY)  make run-release   # release build + attach to the live stable server$(NC)"
+	@printf "%b\n" "$(GRAY)  make run-dev       # isolated: fresh herdr-dev server, no inherited sockets$(NC)"
+	@printf "%b\n" "$(GRAY)  make stop-dev      # quit the herdr-dev sandbox server$(NC)"
+	@printf "%b\n" "$(GRAY)  make install       # symlink release binary as daily herdr ($$XDG_BIN_HOME)$(NC)"
+	@printf "%b\n" "$(GRAY)  make test          # cargo nextest$(NC)"
+	@printf "%b\n" "$(GRAY)  make check         # fmt + clippy -D warnings + nextest$(NC)"
 
 build:
 	cargo build
