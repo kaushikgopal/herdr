@@ -1004,6 +1004,18 @@
           ]
         },
         {
+          "key": "ui.vertical_tabs",
+          "type": "boolean",
+          "default": "false",
+          "description": "Replace the sidebar and the desktop tab row with a left-hand vertical tab strip listing every workspace's tabs grouped under a workspace header, each tab showing its agent state inline."
+        },
+        {
+          "key": "ui.vertical_tabs_compact",
+          "type": "boolean",
+          "default": "false",
+          "description": "Hide the repo, branch, and workspace context line in the vertical tab strip, leaving one line per tab."
+        },
+        {
           "key": "ui.tab_bar_right",
           "type": "array",
           "default": "[]",

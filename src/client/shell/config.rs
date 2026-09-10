@@ -121,6 +121,8 @@ impl ClientShellConfig {
             mobile_width_threshold: config.ui.mobile_width_threshold,
             tab_bar_position: config.ui.tab_bar_position,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
+            vertical_tabs: config.ui.vertical_tabs,
+            vertical_tabs_compact: config.ui.vertical_tabs_compact,
             spaces: config.ui.sidebar.spaces.clone(),
             agents: config.ui.sidebar.agents.clone(),
             agent_panel_sort: config.ui.agent_panel_sort,
@@ -323,6 +325,8 @@ impl ClientShellConfig {
                 self.mobile_width_threshold = ui.mobile_width_threshold;
                 self.tab_bar_position = ui.tab_bar_position;
                 self.hide_tab_bar_when_single_tab = ui.hide_tab_bar_when_single_tab;
+                self.vertical_tabs = ui.vertical_tabs;
+                self.vertical_tabs_compact = ui.vertical_tabs_compact;
                 self.spaces = ui.sidebar.spaces.clone();
                 self.agents = ui.sidebar.agents.clone();
                 self.agent_panel_sort = ui.agent_panel_sort;
@@ -370,25 +374,36 @@ impl ClientShellConfig {
             return ClientShellLayout {
                 sidebar: Rect::default(),
                 tab_bar: Rect::default(),
+                tab_strip: Rect::default(),
                 mobile_header: Rect::new(0, 0, cols, header_height),
                 pane_surface: Rect::new(0, header_height, cols, rows.saturating_sub(header_height)),
             };
         }
 
-        let sidebar_width = if sidebar_collapsed {
+        let (min, max) =
+            crate::config::validated_sidebar_bounds(self.sidebar_min_width, self.sidebar_max_width)
+                .unwrap_or((18, 36));
+        let sidebar_width = if self.vertical_tabs {
+            // The strip replaces the sidebar wholesale; collapse does not apply.
+            sidebar_width.clamp(min, max)
+        } else if sidebar_collapsed {
             match self.sidebar_collapsed_mode {
                 SidebarCollapsedModeConfig::Compact => 4,
                 SidebarCollapsedModeConfig::Hidden => 0,
             }
         } else {
-            let (min, max) = crate::config::validated_sidebar_bounds(
-                self.sidebar_min_width,
-                self.sidebar_max_width,
-            )
-            .unwrap_or((18, 36));
             sidebar_width.clamp(min, max)
         }
         .min(cols.saturating_sub(1));
+        if self.vertical_tabs {
+            return ClientShellLayout {
+                sidebar: Rect::default(),
+                tab_bar: Rect::default(),
+                tab_strip: Rect::new(0, 0, sidebar_width, rows),
+                mobile_header: Rect::default(),
+                pane_surface: Rect::new(sidebar_width, 0, cols.saturating_sub(sidebar_width), rows),
+            };
+        }
         let main = Rect::new(sidebar_width, 0, cols.saturating_sub(sidebar_width), rows);
         let show_tab_bar = rows > 1 && !(self.hide_tab_bar_when_single_tab && tab_count == 1);
         let tab_height = u16::from(show_tab_bar);
@@ -416,6 +431,7 @@ impl ClientShellConfig {
         ClientShellLayout {
             sidebar: Rect::new(0, 0, sidebar_width, rows),
             tab_bar,
+            tab_strip: Rect::default(),
             mobile_header: Rect::default(),
             pane_surface,
         }
@@ -534,5 +550,29 @@ mod tests {
             shell.keybinds.prefix,
             (KeyCode::Char('x'), KeyModifiers::CONTROL)
         );
+    }
+
+    #[test]
+    fn vertical_tabs_layout_replaces_sidebar_and_tab_bar_with_a_left_strip() {
+        let mut shell = ClientShellConfig::from_config(&Config::default());
+        shell.vertical_tabs = true;
+
+        let layout = shell.layout(80, 24, false, 3, 26);
+
+        assert!(layout.sidebar.is_empty());
+        assert!(layout.tab_bar.is_empty());
+        assert_eq!(layout.tab_strip, Rect::new(0, 0, 26, 24));
+        assert_eq!(layout.pane_surface, Rect::new(26, 0, 54, 24));
+    }
+
+    #[test]
+    fn vertical_tabs_ignores_sidebar_collapse_and_tab_bar_hiding() {
+        let mut shell = ClientShellConfig::from_config(&Config::default());
+        shell.vertical_tabs = true;
+
+        let layout = shell.layout(80, 24, true, 1, 26);
+
+        assert_eq!(layout.tab_strip.width, 26);
+        assert_eq!(layout.pane_surface.height, 24);
     }
 }

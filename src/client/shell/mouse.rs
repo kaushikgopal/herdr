@@ -424,6 +424,44 @@ impl ClientShellState {
             .collect::<Vec<_>>();
         let (first_index, first_rect) = *visible.first()?;
         let (last_index, last_rect) = *visible.last()?;
+        if self.config.vertical_tabs {
+            let on_strip = point.0 < first_rect.right();
+            if !on_strip {
+                return None;
+            }
+            if super::contains(self.hits.tab_scroll_left, point) {
+                return Some(0);
+            }
+            if super::contains(self.hits.tab_scroll_right, point) {
+                return Some(tabs.len());
+            }
+            let top_edge = if first_index == 0 {
+                first_rect.y
+            } else {
+                self.hits.tab_scroll_left.bottom()
+            };
+            let bottom_edge = if last_index + 1 >= tabs.len() {
+                last_rect.bottom()
+            } else {
+                self.hits.tab_scroll_right.y
+            };
+            if point.1 <= top_edge {
+                return Some(first_index);
+            }
+            if point.1 >= bottom_edge {
+                return Some(last_index + 1);
+            }
+            for (index, rect) in visible {
+                let midpoint = rect.y + rect.height / 2;
+                if point.1 < midpoint {
+                    return Some(index);
+                }
+                if point.1 < rect.bottom() {
+                    return Some(index + 1);
+                }
+            }
+            return Some(last_index + 1);
+        }
         let on_tab_row = point.1 == first_rect.y;
         if !on_tab_row {
             return None;
@@ -460,6 +498,46 @@ impl ClientShellState {
             }
         }
         Some(last_index + 1)
+    }
+
+    /// Wheel-over-strip tab cycling: walks every workspace's tabs in the
+    /// order the strip renders them. Clamps at the ends; the resulting
+    /// TabFocus switches workspace and the strip auto-reveals the new tab.
+    fn cycle_strip_tab(&mut self, direction: isize, outcome: &mut ClientShellInput) {
+        let Some(snapshot) = self.snapshot.as_deref() else {
+            return;
+        };
+        let ordered = snapshot
+            .workspaces
+            .iter()
+            .flat_map(|workspace| {
+                snapshot
+                    .tabs
+                    .iter()
+                    .filter(move |tab| tab.workspace_id == workspace.workspace_id)
+            })
+            .collect::<Vec<_>>();
+        if ordered.len() < 2 {
+            return;
+        }
+        let next_index = match ordered.iter().position(|tab| tab.focused) {
+            Some(index) => {
+                let target = index as isize + direction;
+                target.clamp(0, ordered.len() as isize - 1) as usize
+            }
+            None => match direction {
+                -1 => ordered.len() - 1,
+                _ => 0,
+            },
+        };
+        let next = ordered[next_index].tab_id.clone();
+        if Some(next.as_str()) == snapshot.focused_tab_id.as_deref() {
+            return;
+        }
+        self.push_endpoint_method(
+            crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget { tab_id: next }),
+            outcome,
+        );
     }
 
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
@@ -1776,10 +1854,19 @@ impl ClientShellState {
                     || super::contains(self.hits.tab_scroll_right, point)
                     || super::contains(self.hits.new_tab, point) =>
             {
-                self.record_binding(
-                    crate::input::KeybindMatch::Action(crate::input::KeybindAction::PreviousTab),
-                    outcome,
-                );
+                if self.config.vertical_tabs {
+                    // The strip lists every workspace's tabs, so the wheel
+                    // cycles the full list; the strip auto-reveals the newly
+                    // focused tab.
+                    self.cycle_strip_tab(-1, outcome);
+                } else {
+                    self.record_binding(
+                        crate::input::KeybindMatch::Action(
+                            crate::input::KeybindAction::PreviousTab,
+                        ),
+                        outcome,
+                    );
+                }
             }
             MouseEventKind::ScrollDown
                 if self
@@ -1791,10 +1878,14 @@ impl ClientShellState {
                     || super::contains(self.hits.tab_scroll_right, point)
                     || super::contains(self.hits.new_tab, point) =>
             {
-                self.record_binding(
-                    crate::input::KeybindMatch::Action(crate::input::KeybindAction::NextTab),
-                    outcome,
-                );
+                if self.config.vertical_tabs {
+                    self.cycle_strip_tab(1, outcome);
+                } else {
+                    self.record_binding(
+                        crate::input::KeybindMatch::Action(crate::input::KeybindAction::NextTab),
+                        outcome,
+                    );
+                }
             }
             MouseEventKind::ScrollUp if super::contains(self.hits.agent_body, point) => {
                 let next = self.agent_scroll.saturating_sub(1);
@@ -1961,23 +2052,31 @@ impl ClientShellState {
                     return;
                 }
                 if super::contains(self.hits.tab_scroll_right, point) {
-                    let tab_count = self
-                        .snapshot
-                        .as_deref()
-                        .and_then(|snapshot| {
-                            snapshot.focused_workspace_id.as_deref().map(|id| {
-                                snapshot
-                                    .tabs
-                                    .iter()
-                                    .filter(|tab| tab.workspace_id == id)
-                                    .count()
+                    // The strip scrolls by workspace group; the horizontal bar
+                    // (upstream) still scrolls by focused-workspace tab count.
+                    let scroll_limit = if self.config.vertical_tabs {
+                        self.snapshot
+                            .as_deref()
+                            .map(|snapshot| snapshot.workspaces.len())
+                            .unwrap_or(0)
+                    } else {
+                        self.snapshot
+                            .as_deref()
+                            .and_then(|snapshot| {
+                                snapshot.focused_workspace_id.as_deref().map(|id| {
+                                    snapshot
+                                        .tabs
+                                        .iter()
+                                        .filter(|tab| tab.workspace_id == id)
+                                        .count()
+                                })
                             })
-                        })
-                        .unwrap_or(0);
+                            .unwrap_or(0)
+                    };
                     self.tab_scroll = self
                         .tab_scroll
                         .saturating_add(1)
-                        .min(tab_count.saturating_sub(1));
+                        .min(scroll_limit.saturating_sub(1));
                     outcome.repaint = true;
                     return;
                 }

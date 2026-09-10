@@ -384,3 +384,609 @@ fn tab_label(tab: &ClientShellTab) -> String {
         tab.label.clone()
     }
 }
+const TAB_STRIP_CHROME_HEIGHT: u16 = 1;
+struct TabStripEntry<'a> {
+    tab: &'a ClientShellTab,
+    workspace: &'a ClientShellWorkspace,
+    panes: Vec<&'a crate::protocol::ClientShellPane>,
+    agents_by_pane: &'a HashMap<&'a str, Vec<&'a crate::protocol::ClientShellAgent>>,
+}
+
+impl TabStripEntry<'_> {
+    fn line_count(&self, compact: bool) -> u16 {
+        let pane_lines = self
+            .panes
+            .len()
+            .saturating_sub(1)
+            .min(u16::MAX as usize - 3) as u16;
+        1 + u16::from(!compact) + pane_lines
+    }
+
+    /// The pane whose info populates the tab line: the one hosting the
+    /// highest-priority agent, else the focused pane, else the first pane.
+    fn primary_pane(&self) -> Option<&crate::protocol::ClientShellPane> {
+        // rev(): max_by_key prefers the last of equal keys, but tab-title
+        // primacy follows pane order — first pane wins ties.
+        self.panes.iter().copied().rev().max_by_key(|pane| {
+            self.pane_agent(pane)
+                .map(|agent| (status_priority(agent.agent_status), agent.state_change_seq))
+                .unwrap_or((0, 0))
+        })
+    }
+
+    fn pane_agent(
+        &self,
+        pane: &crate::protocol::ClientShellPane,
+    ) -> Option<&crate::protocol::ClientShellAgent> {
+        self.agents_by_pane
+            .get(pane.pane_id.as_str())?
+            .iter()
+            .max_by_key(|agent| (status_priority(agent.agent_status), agent.state_change_seq))
+            .copied()
+    }
+}
+
+struct TabStripGroup<'a> {
+    workspace: &'a ClientShellWorkspace,
+    tabs: Vec<TabStripEntry<'a>>,
+}
+
+impl TabStripGroup<'_> {
+    /// One rounded box wraps the whole group: content rows + two borders.
+    fn height(&self, compact: bool) -> u16 {
+        self.tabs
+            .iter()
+            .map(|tab| tab.line_count(compact))
+            .sum::<u16>()
+            .saturating_add(2)
+    }
+}
+
+pub(crate) fn render_tab_strip(
+    buffer: &mut Buffer,
+    area: Rect,
+    snapshot: &ClientShellSnapshot,
+    config: &ClientShellConfig,
+    state: &mut ShellRenderState<'_>,
+    hits: &mut ShellHitMap,
+) {
+    let palette = &config.palette;
+    render_sidebar_background(buffer, area, palette);
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let content = if config.mouse_capture {
+        Rect::new(
+            area.x,
+            area.y,
+            area.width,
+            area.height.saturating_sub(TAB_STRIP_CHROME_HEIGHT),
+        )
+    } else {
+        area
+    };
+
+    let focused_tabs = snapshot
+        .tabs
+        .iter()
+        .filter(|tab| Some(tab.workspace_id.as_str()) == snapshot.focused_workspace_id.as_deref())
+        .collect::<Vec<_>>();
+    let mut panes_by_tab: HashMap<&str, Vec<&crate::protocol::ClientShellPane>> = HashMap::new();
+    for pane in &snapshot.panes {
+        panes_by_tab
+            .entry(pane.tab_id.as_str())
+            .or_default()
+            .push(pane);
+    }
+    let agents_by_pane: HashMap<&str, Vec<&crate::protocol::ClientShellAgent>> = snapshot
+        .agents
+        .iter()
+        .fold(HashMap::new(), |mut map, agent| {
+            map.entry(agent.pane_id.as_str()).or_default().push(agent);
+            map
+        });
+
+    // One box per workspace: its tabs render inside the group's border.
+    let groups: Vec<TabStripGroup<'_>> = snapshot
+        .workspaces
+        .iter()
+        .map(|workspace| TabStripGroup {
+            workspace,
+            tabs: snapshot
+                .tabs
+                .iter()
+                .filter(|tab| tab.workspace_id == workspace.workspace_id)
+                .map(|tab| TabStripEntry {
+                    tab,
+                    workspace,
+                    panes: panes_by_tab.remove(tab.tab_id.as_str()).unwrap_or_default(),
+                    agents_by_pane: &agents_by_pane,
+                })
+                .collect(),
+        })
+        .collect();
+    let row_heights = groups
+        .iter()
+        .map(|group| group.height(config.vertical_tabs_compact))
+        .collect::<Vec<_>>();
+
+    let max_scroll = max_tab_strip_scroll(&row_heights, content.height);
+    if !overflow_tab_strip(&row_heights, content.height) {
+        *state.tab_scroll = 0;
+    } else if *state.reveal_focused_tab {
+        if let Some(focused) = groups
+            .iter()
+            .position(|group| group.tabs.iter().any(|entry| entry.tab.focused))
+        {
+            *state.tab_scroll =
+                strip_scroll_revealing(*state.tab_scroll, focused, &row_heights, content.height)
+                    .min(max_scroll);
+        }
+    } else {
+        *state.tab_scroll = (*state.tab_scroll).min(max_scroll);
+    }
+    *state.reveal_focused_tab = false;
+
+    let mut y = content.y;
+    let mut last_visible = None;
+    for (index, group) in groups.iter().enumerate().skip(*state.tab_scroll) {
+        let row_height = row_heights[index];
+        let remaining = content.bottom().saturating_sub(y);
+        let height = row_height.min(remaining);
+        if height == 0 {
+            break;
+        }
+        render_tab_strip_group(
+            buffer,
+            Rect::new(content.x, y, content.width, height),
+            group,
+            config,
+            hits,
+        );
+        last_visible = Some(index);
+        y = y.saturating_add(height);
+        if height < row_height {
+            break;
+        }
+    }
+
+    if config.mouse_capture {
+        render_tab_strip_chrome(
+            buffer,
+            area,
+            overflow_tab_strip(&row_heights, content.height),
+            last_visible.is_some_and(|index| index + 1 < groups.len()),
+            palette,
+            hits,
+        );
+    }
+
+    if let Some(insert_index) = state.tab_drag_insert_index {
+        if let Some(indicator_y) = tab_drop_indicator_y(hits, &focused_tabs, insert_index) {
+            let indicator_y = indicator_y.min(content.bottom().saturating_sub(1));
+            put_text(
+                buffer,
+                content.x,
+                indicator_y,
+                content.width,
+                &"─".repeat(content.width as usize),
+                Style::default().fg(palette.accent),
+            );
+        }
+    }
+}
+
+/// One workspace group: a single rounded box around all its tabs. Each tab
+/// renders title + agent badge, an optional repo • branch • workspace
+/// context line, then one line per extra pane.
+fn render_tab_strip_group(
+    buffer: &mut Buffer,
+    rect: Rect,
+    group: &TabStripGroup<'_>,
+    config: &ClientShellConfig,
+    hits: &mut ShellHitMap,
+) {
+    let palette = &config.palette;
+    let border_style = Style::default().fg(if group.workspace.focused {
+        palette.overlay0
+    } else {
+        palette.surface_dim
+    });
+    let inner = draw_strip_box(buffer, rect, border_style);
+    if inner.is_empty() {
+        return;
+    }
+
+    let compact = config.vertical_tabs_compact;
+    let mut line_y = inner.y;
+    for entry in &group.tabs {
+        let active = entry.tab.focused;
+        let primary = entry.primary_pane();
+        let badge = primary
+            .and_then(|pane| entry.pane_agent(pane))
+            .map(|agent| (strip_agent_name(agent), agent.agent_status));
+
+        // Title line. The tab hit region stops before the pane lines so
+        // pane rows can route clicks to their own pane.
+        if line_y >= inner.bottom() {
+            break;
+        }
+        let tab_hit_height = (1 + u16::from(!compact)).min(inner.bottom().saturating_sub(line_y));
+        let title_rect = Rect::new(inner.x, line_y, inner.width, 1);
+        if active {
+            // Muted highlight: the same surface the inactive tabs used to get.
+            buffer.set_style(
+                Rect::new(inner.x, line_y, inner.width, tab_hit_height),
+                Style::default().bg(palette.surface0),
+            );
+        }
+        hits.tabs.push((
+            Rect::new(inner.x, line_y, inner.width, tab_hit_height),
+            entry.tab.tab_id.clone(),
+        ));
+        render_strip_line_with_badge(
+            buffer,
+            title_rect,
+            &tab_label(entry.tab),
+            if active {
+                Style::default()
+                    .fg(palette.text)
+                    .add_modifier(Modifier::BOLD)
+            } else if entry.tab.custom_label {
+                Style::default().fg(palette.overlay1)
+            } else {
+                Style::default()
+                    .fg(palette.overlay0)
+                    .add_modifier(Modifier::DIM)
+            },
+            badge,
+            config,
+        );
+        line_y = line_y.saturating_add(1);
+
+        // Context line: repo • branch • workspace.
+        if !compact {
+            if line_y >= inner.bottom() {
+                break;
+            }
+            let context_rect = Rect::new(inner.x, line_y, inner.width, 1);
+            if active {
+                buffer.set_style(context_rect, Style::default().bg(palette.surface0));
+            }
+            render_strip_context_line(buffer, context_rect, entry, config);
+            line_y = line_y.saturating_add(1);
+        }
+
+        // Secondary panes, one line each with their own agent badge. Clicks
+        // focus that pane (the hit map routes agents to PaneFocus).
+        for pane in &entry.panes {
+            if primary.is_some_and(|primary| primary.pane_id == pane.pane_id) {
+                continue;
+            }
+            if line_y >= inner.bottom() {
+                break;
+            }
+            let pane_rect = Rect::new(inner.x, line_y, inner.width, 1);
+            if active {
+                buffer.set_style(pane_rect, Style::default().bg(palette.surface0));
+            }
+            let pane_badge = entry
+                .pane_agent(pane)
+                .map(|agent| (strip_agent_name(agent), agent.agent_status));
+            let title_style = if pane.focused {
+                Style::default().fg(palette.overlay1)
+            } else {
+                Style::default()
+                    .fg(palette.overlay0)
+                    .add_modifier(Modifier::DIM)
+            };
+            render_strip_line_with_badge(
+                buffer,
+                pane_rect,
+                &strip_pane_title(pane),
+                title_style,
+                pane_badge,
+                config,
+            );
+            hits.agents.push((pane_rect, pane.pane_id.clone()));
+            line_y = line_y.saturating_add(1);
+        }
+    }
+}
+
+fn strip_agent_name(agent: &crate::protocol::ClientShellAgent) -> Option<&str> {
+    agent
+        .display_agent
+        .as_deref()
+        .or(agent.name.as_deref())
+        .or(agent.agent.as_deref())
+        .or(agent.title.as_deref())
+        .filter(|name| !name.is_empty())
+}
+
+fn strip_pane_title(pane: &crate::protocol::ClientShellPane) -> String {
+    if let Some(label) = pane.label.as_deref().filter(|label| !label.is_empty()) {
+        return label.to_owned();
+    }
+    pane.foreground_cwd
+        .as_deref()
+        .or(pane.cwd.as_deref())
+        .and_then(|cwd| cwd.rsplit('/').next())
+        .filter(|base| !base.is_empty())
+        .map_or_else(|| "pane".to_owned(), str::to_owned)
+}
+
+/// Title left-aligned; badge right-aligned with the agent name shown only
+/// when the title keeps a minimum amount of room.
+fn render_strip_line_with_badge(
+    buffer: &mut Buffer,
+    rect: Rect,
+    title: &str,
+    title_style: Style,
+    badge: Option<(Option<&str>, crate::api::schema::AgentStatus)>,
+    config: &ClientShellConfig,
+) {
+    let palette = &config.palette;
+    const MIN_TITLE_WIDTH: u16 = 4;
+    let icon = badge
+        .map(|(_, status)| status_icon(status, config.status_indicators))
+        .unwrap_or_default();
+    let icon_width = u16::from(!icon.is_empty());
+    let name = badge.and_then(|(name, _)| name).unwrap_or_default();
+    let name_width = display_width(name);
+    let show_name = icon_width > 0
+        && name_width > 0
+        && rect.width >= icon_width + name_width + 1 + MIN_TITLE_WIDTH;
+    let right_width = if show_name {
+        name_width + 1 + icon_width
+    } else {
+        icon_width
+    };
+    let title_width = rect
+        .width
+        .saturating_sub(right_width)
+        .min(rect.width.saturating_sub(1));
+    put_text(buffer, rect.x, rect.y, title_width, title, title_style);
+
+    let badge_status = badge.map(|(_, status)| status);
+    if right_width == 0 {
+        return;
+    }
+    let mut x = rect.right().saturating_sub(right_width);
+    if show_name {
+        x = put_segment(
+            buffer,
+            x,
+            rect.y,
+            rect.right(),
+            name,
+            Style::default().fg(palette.overlay0),
+        );
+        x = put_segment(buffer, x, rect.y, rect.right(), " ", title_style);
+    }
+    put_segment(
+        buffer,
+        x,
+        rect.y,
+        rect.right(),
+        icon,
+        Style::default().fg(status_color(
+            badge_status.unwrap_or(crate::api::schema::AgentStatus::Unknown),
+            palette,
+        )),
+    );
+}
+
+/// repo • branch • workspace, dropping leftmost segments when the strip is
+/// too narrow: the workspace label is the identity, the repo label the most
+/// redundant.
+fn render_strip_context_line(
+    buffer: &mut Buffer,
+    rect: Rect,
+    entry: &TabStripEntry<'_>,
+    config: &ClientShellConfig,
+) {
+    let palette = &config.palette;
+    let workspace = entry.workspace;
+    let mut segments: Vec<&str> = Vec::new();
+    if let Some(worktree) = &workspace.worktree {
+        segments.push(worktree.label.as_str());
+    }
+    if let Some(branch) = &workspace.branch {
+        segments.push(branch.as_str());
+    }
+    segments.push(workspace.label.as_str());
+    let mut skip = 0;
+    let text = loop {
+        let text = segments
+            .iter()
+            .skip(skip)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" • ");
+        if display_width(&text) <= rect.width || skip + 1 >= segments.len() {
+            break text;
+        }
+        skip += 1;
+    };
+    put_text(
+        buffer,
+        rect.x,
+        rect.y,
+        rect.width,
+        &text,
+        Style::default()
+            .fg(palette.overlay0)
+            .add_modifier(Modifier::DIM),
+    );
+}
+
+/// Rounded, muted box; returns the inner content rect. Falls back to the
+/// rect itself when there is no room for a box.
+fn draw_strip_box(buffer: &mut Buffer, rect: Rect, style: Style) -> Rect {
+    if rect.width < 5 || rect.height < 3 {
+        return rect;
+    }
+    let inner = Rect::new(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2);
+    for x in inner.x..inner.right() {
+        put_text(buffer, x, rect.y, 1, "─", style);
+        put_text(buffer, x, rect.bottom().saturating_sub(1), 1, "─", style);
+    }
+    for y in inner.y..inner.bottom() {
+        put_text(buffer, rect.x, y, 1, "│", style);
+        put_text(buffer, rect.right().saturating_sub(1), y, 1, "│", style);
+    }
+    put_text(buffer, rect.x, rect.y, 1, "╭", style);
+    put_text(
+        buffer,
+        rect.right().saturating_sub(1),
+        rect.y,
+        1,
+        "╮",
+        style,
+    );
+    put_text(
+        buffer,
+        rect.x,
+        rect.bottom().saturating_sub(1),
+        1,
+        "╰",
+        style,
+    );
+    put_text(
+        buffer,
+        rect.right().saturating_sub(1),
+        rect.bottom().saturating_sub(1),
+        1,
+        "╯",
+        style,
+    );
+    inner
+}
+
+fn render_tab_strip_chrome(
+    buffer: &mut Buffer,
+    area: Rect,
+    overflow: bool,
+    can_scroll_down: bool,
+    palette: &Palette,
+    hits: &mut ShellHitMap,
+) {
+    let chrome_y = area.bottom().saturating_sub(1);
+    hits.new_tab = Rect::new(area.x, chrome_y, NEW_TAB_WIDTH.min(area.width), 1);
+    put_text(
+        buffer,
+        hits.new_tab.x,
+        chrome_y,
+        hits.new_tab.width,
+        " + ",
+        Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+    );
+    if !overflow {
+        return;
+    }
+    hits.tab_scroll_left = Rect::new(area.right().saturating_sub(2), chrome_y, 1, 1);
+    hits.tab_scroll_right = Rect::new(area.right().saturating_sub(1), chrome_y, 1, 1);
+    put_text(
+        buffer,
+        hits.tab_scroll_left.x,
+        chrome_y,
+        1,
+        "▲",
+        Style::default().fg(palette.overlay1).bg(palette.surface0),
+    );
+    put_text(
+        buffer,
+        hits.tab_scroll_right.x,
+        chrome_y,
+        1,
+        "▼",
+        Style::default()
+            .fg(if can_scroll_down {
+                palette.overlay1
+            } else {
+                palette.overlay0
+            })
+            .bg(palette.surface0),
+    );
+}
+
+fn overflow_tab_strip(heights: &[u16], available: u16) -> bool {
+    max_tab_strip_scroll(heights, available) > 0
+}
+
+fn max_tab_strip_scroll(heights: &[u16], available: u16) -> usize {
+    (0..heights.len())
+        .find(|start| {
+            last_visible_entry(*start, heights, available) == heights.len().checked_sub(1)
+        })
+        .unwrap_or(0)
+}
+
+fn last_visible_entry(start: usize, heights: &[u16], available: u16) -> Option<usize> {
+    let mut remaining = available;
+    let mut last = None;
+    for (index, height) in heights.iter().copied().enumerate().skip(start) {
+        if remaining == 0 {
+            break;
+        }
+        last = Some(index);
+        if height >= remaining {
+            break;
+        }
+        remaining = remaining.saturating_sub(height);
+    }
+    last
+}
+
+fn strip_scroll_revealing(
+    current: usize,
+    focused: usize,
+    heights: &[u16],
+    available: u16,
+) -> usize {
+    let mut start = current.min(focused);
+    while start < focused
+        && last_visible_entry(start, heights, available).is_none_or(|last| last < focused)
+    {
+        start += 1;
+    }
+    start
+}
+
+fn tab_drop_indicator_y(
+    hits: &ShellHitMap,
+    tabs: &[&ClientShellTab],
+    insert_index: usize,
+) -> Option<u16> {
+    let visible = hits
+        .tabs
+        .iter()
+        .filter_map(|(rect, tab_id)| {
+            tabs.iter()
+                .position(|tab| tab.tab_id == *tab_id)
+                .map(|index| (index, *rect))
+        })
+        .collect::<Vec<_>>();
+    let (first_index, first_rect) = *visible.first()?;
+    let (last_index, last_rect) = *visible.last()?;
+    if insert_index == 0 {
+        return Some(if first_index == 0 {
+            first_rect.y
+        } else {
+            hits.tab_scroll_left.y
+        });
+    }
+    if let Some((_, rect)) = visible.iter().find(|(index, _)| *index == insert_index) {
+        return Some(rect.y.saturating_sub(1));
+    }
+    if insert_index >= tabs.len() {
+        return Some(if last_index + 1 >= tabs.len() {
+            last_rect.bottom()
+        } else {
+            hits.tab_scroll_right.y.saturating_sub(1)
+        });
+    }
+    None
+}

@@ -247,59 +247,70 @@ pub(super) fn render_shell(
             &mut hits,
         );
     }
-    if layout.sidebar.width > 0 {
-        if state.endpoints.len() > 1 {
-            if state.sidebar_collapsed {
-                super::endpoint_sidebar::render_collapsed(
+    if layout.tab_strip.width > 0 {
+        tabs::render_tab_strip(
+            buffer,
+            layout.tab_strip,
+            snapshot,
+            config,
+            &mut state,
+            &mut hits,
+        );
+    } else {
+        if layout.sidebar.width > 0 {
+            if state.endpoints.len() > 1 {
+                if state.sidebar_collapsed {
+                    super::endpoint_sidebar::render_collapsed(
+                        buffer,
+                        layout.sidebar,
+                        config,
+                        &mut state,
+                        &mut hits,
+                    );
+                } else {
+                    super::endpoint_sidebar::render_expanded(
+                        buffer,
+                        layout.sidebar,
+                        Some(snapshot),
+                        config,
+                        &mut state,
+                        &mut hits,
+                    );
+                }
+            } else if state.sidebar_collapsed {
+                render_collapsed_sidebar(
                     buffer,
                     layout.sidebar,
+                    snapshot,
                     config,
-                    &mut state,
+                    state
+                        .selected_workspace_id
+                        .map(|target| target.workspace_id.as_str()),
                     &mut hits,
                 );
             } else {
-                super::endpoint_sidebar::render_expanded(
+                render_sidebar(
                     buffer,
                     layout.sidebar,
-                    Some(snapshot),
+                    snapshot,
                     config,
                     &mut state,
                     &mut hits,
                 );
             }
-        } else if state.sidebar_collapsed {
-            render_collapsed_sidebar(
+        }
+        if layout.tab_bar.height > 0 {
+            render_tab_bar(
                 buffer,
-                layout.sidebar,
+                layout.tab_bar,
                 snapshot,
                 config,
-                state
-                    .selected_workspace_id
-                    .map(|target| target.workspace_id.as_str()),
-                &mut hits,
-            );
-        } else {
-            render_sidebar(
-                buffer,
-                layout.sidebar,
-                snapshot,
-                config,
-                &mut state,
+                state.tab_scroll,
+                state.reveal_focused_tab,
+                state.tab_drag_insert_index,
                 &mut hits,
             );
         }
-    }
-    if layout.tab_bar.height > 0 {
-        render_tab_bar(
-            buffer,
-            layout.tab_bar,
-            snapshot,
-            config,
-            state.tab_scroll,
-            state.reveal_focused_tab,
-            state.tab_drag_insert_index,
-            &mut hits,
-        );
     }
     if !config.mouse_capture {
         hits.sidebar_divider = Rect::default();

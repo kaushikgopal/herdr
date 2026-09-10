@@ -77,6 +77,8 @@ pub(crate) struct ClientShellConfig {
     pub(super) mobile_width_threshold: u16,
     pub(super) tab_bar_position: TabBarPositionConfig,
     pub(super) hide_tab_bar_when_single_tab: bool,
+    pub(super) vertical_tabs: bool,
+    pub(super) vertical_tabs_compact: bool,
     pub(super) spaces: SpacesSidebarConfig,
     pub(super) agents: crate::config::AgentsSidebarConfig,
     pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
@@ -113,6 +115,7 @@ pub(crate) struct ClientShellConfig {
 pub(super) struct ClientShellLayout {
     pub sidebar: Rect,
     pub tab_bar: Rect,
+    pub tab_strip: Rect,
     pub mobile_header: Rect,
     pub pane_surface: Rect,
 }
