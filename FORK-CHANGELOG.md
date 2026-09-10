@@ -100,10 +100,12 @@ pane clicks, compact mode, narrow-strip name hiding, overflow scrolling).
 ### 2. Makefile (fork helper)
 
 `make build` / `make run` (debug, sandboxed) / `make run-release` (real
-config + sessions) / `make run-dev` (isolated fresh server) / `make
-stop-dev` / `make test` / `make check` / `make install`. The repo's canonical
-runner is still `just`; the Makefile exists because debug-vs-stable toolchain
-quirks are easy to get wrong (see gotchas below).
+config + sessions) / `make stop-dev` / `make test` / `make check` / `make
+install`. The repo's canonical runner is still `just`; the Makefile exists
+because debug-vs-stable toolchain quirks are easy to get wrong (see gotchas
+below). There is deliberately no stop-release: stopping the live server is
+`herdr server stop` (kills all panes/agents) and should not sit one
+tab-completion away.
 
 `make install` symlinks `target/release/herdr` to
 `$XDG_BIN_HOME/herdr` (default `~/.local/bin`; fish PATH precedence puts
