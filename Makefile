@@ -22,14 +22,16 @@ build:
 build-release:
 	cargo build --release
 
-# Symlink the release binary as the daily `herdr` command. fish_user_paths
-# puts ~/.config/gohan/bin first, so this shadows the brew install; remove
-# the symlink to fall back to it.
+# Symlink the release binary as the daily `herdr` command, into the XDG bin
+# directory ($XDG_BIN_HOME, default ~/.local/bin). Needs to precede
+# /opt/homebrew/bin on PATH to shadow the brew install; remove the symlink
+# to fall back to it.
 install: build-release
-	@dest=$(HOME)/.config/gohan/bin/herdr; \
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}/herdr"; \
 	if [ -e "$$dest" ] && [ ! -L "$$dest" ]; then \
 		echo "refusing to overwrite real file at $$dest"; exit 1; \
 	fi; \
+	mkdir -p "$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
 	ln -sfn $(CURDIR)/target/release/herdr $$dest && echo "installed: $$dest -> $(CURDIR)/target/release/herdr"
 
 # Debug builds are sandboxed into ~/.config/herdr-dev (own config + state),
