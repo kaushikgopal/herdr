@@ -23,30 +23,37 @@ fork's; add one entry per fork change, newest first.
 ### 1. Vertical tab strip — `ui.vertical_tabs` (bool, default false)
 
 Replaces the left sidebar (spaces + agents panel) and the horizontal top tab
-row with a single left-hand vertical strip listing **every workspace's tabs**,
+row with a single left-hand vertical strip listing **every workspace's tabs**, 
 grouped into one rounded box per workspace (no workspace header rows — the
-context line carries the workspace name). Clicking any tab — including tabs
-of other workspaces — focuses that tab and switches to its workspace
-(upstream `TabFocus` already does both; no server changes). The border is
-`overlay0` for the focused workspace's box, `surface_dim` for others.
+title row carries the workspace name, right-aligned). Clicking any tab —
+including tabs of other workspaces — focuses that tab and switches to its
+workspace (upstream `TabFocus` already does both; no server changes). The
+border is `overlay0` for the focused workspace's box, `surface_dim` for
+others.
 
 Each tab renders as a bordered block:
 
-- Line 1: tab title (left) + agent badge (right) — agent name shown only when
-  the title keeps 4+ columns, status icon always right-aligned.
-- Line 2 (unless `vertical_tabs_compact`): `repo • branch • workspace`,
-  dropping leftmost segments when the strip is too narrow. "repo" comes from
-  the attached worktree's label (the client snapshot has no repo-name field —
-  if upstream adds one, use it); branch from `workspace.branch`; workspace
-  label always last.
-- Extra panes: one line per additional pane below (pane label, else cwd
-  basename) with that pane's own agent badge. Clicking a pane line sends
-  `PaneFocus` for that pane; clicking the title/context region sends
-  `TabFocus`.
+- Title row: tab title (left) + workspace label right-aligned, dim — this is
+  where the agent badge used to sit; per-pane facts moved to the details row.
+  The label hides before the title drops below 4 columns.
+- Details row (unless `vertical_tabs_compact`): the primary pane's cwd leaf
+  first, then `workspace.branch`, joined by ` • `; the primary pane's agent
+  badge (name + status icon) right-aligned. Segments drop from the RIGHT
+  when narrow (branch before leaf — the leaf is the identity); the cwd leaf
+  is capped at 8 columns, tail ellipsized (`kartyb-…`). The client snapshot
+  has no per-pane branch — `workspace.branch` is shared by all rows in the
+  workspace; if upstream adds one, use it.
+- Extra panes: one line per additional pane in the same details format (pane
+  label if set, else cwd leaf) with that pane's own agent badge. Clicking a
+  pane line sends `PaneFocus` for that pane; clicking the title/details
+  region sends `TabFocus`.
+- Compact mode (`vertical_tabs_compact`) drops the details row, so the agent
+  badge stays on the title row there.
 - Active tab: muted `surface0` background + bold text. Inactive tabs: no
-  background, dim text. Blocks are wrapped in a rounded box
-  (`╭─╮│╰─╯`), `overlay0` border for the active tab, `surface_dim` for
-  inactive ones.
+  background, dim text. Blocks are wrapped in a rounded box (`╭─╮│╰─╯`),
+  `overlay0` border for the active tab, `surface_dim` for inactive ones.
+  The strip paints `sidebar_bg` only — no sidebar separator `│` (it read as
+  a stray border line below the last box).
 
 **Where:**
 
@@ -56,13 +63,12 @@ Each tab renders as a bordered block:
   `apply_live_config`) and the layout branch in `ClientShellConfig::layout()`
   (strip replaces sidebar + tab bar; ignores sidebar collapse).
 - `src/client/shell/tabs.rs` — `render_tab_strip`, `render_tab_strip_group`
-  (one box per workspace), `render_strip_line_with_badge`,
-  `render_strip_context_line`, `draw_strip_box`, `strip_agent_name`,
-  `strip_pane_title`, plus the vertical scroll helpers
-  (`max_tab_strip_scroll`, `strip_scroll_revealing`, `last_visible_entry`,
-  `overflow_tab_strip`) and `tab_drop_indicator_y`.
-- `src/client/shell/render.rs` — `render_shell` dispatch (strip branch before
-  the sidebar/tab-bar branch).
+  (one box per workspace), `render_strip_line_with_badge` (segment-based,
+  drops rightmost when narrow), `render_strip_title_row`, `strip_cwd_leaf` /
+  `ellipsize_tail` / `detail_segments`, `draw_strip_box`, `strip_agent_name`,
+  plus the vertical scroll helpers (`max_tab_strip_scroll`,
+  `strip_scroll_revealing`, `last_visible_entry`, `overflow_tab_strip`) and
+  `tab_drop_indicator_y`.
 - `src/client/shell/mouse.rs` — `tab_drop_index_at` vertical branch for
   tab-drag drop indices; `cycle_strip_tab` — wheel over the strip cycles
   through ALL tabs across workspaces (upstream wheel = `NextTab`/`PrevTab`,
@@ -95,7 +101,9 @@ the workspace group (one box per notch) — a single workspace with more tabs
 than fit the viewport cannot scroll them all. Both low priority.
 
 **Tests:** `src/client/shell/tests/vertical_tabs.rs` (grouping, click-to-focus,
-pane clicks, compact mode, narrow-strip name hiding, overflow scrolling).
+pane clicks, compact mode, cwd-leaf/branch details + workspace-on-title,
+8-column leaf ellipsis, narrow-strip right-to-left dropping, no separator +
+flush group stacking, overflow scrolling).
 
 ### 2. Makefile (fork helper)
 
@@ -157,6 +165,19 @@ agents), plus an occasional timing flake in
 passes in isolation.
 
 ## Log
+
+### 2026-09-09 (details-row rework)
+
+- Strip tab blocks reworked: title row now carries the workspace label
+  (right-aligned, replaces the agent badge); details row is now `cwd leaf •
+  branch` + agent badge (was `repo • branch • workspace`); extra pane rows
+  use the same format; cwd leaf capped at 8 columns with a trailing
+  ellipsis; details drop right-to-left when narrow.
+- Removed the sidebar separator `│` from the strip path (rendered as a stray
+  full-height line at the panel edge); the strip paints background only. The
+  blue active-pane edge indicator is separate and untouched.
+- Added `## Fork rules` to `AGENTS.md`: every fork change must be tracked in
+  `FORK-CHANGELOG.md`; work notes in `.agents/dox/`.
 
 ### 2026-09-10
 

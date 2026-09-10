@@ -451,7 +451,9 @@ pub(crate) fn render_tab_strip(
     hits: &mut ShellHitMap,
 ) {
     let palette = &config.palette;
-    render_sidebar_background(buffer, area, palette);
+    // The group boxes delineate the strip themselves; no sidebar separator —
+    // past the last box it read as a stray border line.
+    buffer.set_style(area, Style::default().bg(palette.sidebar_bg));
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -578,8 +580,9 @@ pub(crate) fn render_tab_strip(
 }
 
 /// One workspace group: a single rounded box around all its tabs. Each tab
-/// renders title + agent badge, an optional repo • branch • workspace
-/// context line, then one line per extra pane.
+/// renders a title row (workspace label right-aligned), a details row
+/// (cwd leaf • branch + agent badge), then one line per extra pane in the
+/// same details format.
 fn render_tab_strip_group(
     buffer: &mut Buffer,
     rect: Rect,
@@ -603,9 +606,6 @@ fn render_tab_strip_group(
     for entry in &group.tabs {
         let active = entry.tab.focused;
         let primary = entry.primary_pane();
-        let badge = primary
-            .and_then(|pane| entry.pane_agent(pane))
-            .map(|agent| (strip_agent_name(agent), agent.agent_status));
 
         // Title line. The tab hit region stops before the pane lines so
         // pane rows can route clicks to their own pane.
@@ -625,27 +625,48 @@ fn render_tab_strip_group(
             Rect::new(inner.x, line_y, inner.width, tab_hit_height),
             entry.tab.tab_id.clone(),
         ));
-        render_strip_line_with_badge(
-            buffer,
-            title_rect,
-            &tab_label(entry.tab),
-            if active {
-                Style::default()
-                    .fg(palette.text)
-                    .add_modifier(Modifier::BOLD)
-            } else if entry.tab.custom_label {
-                Style::default().fg(palette.overlay1)
-            } else {
-                Style::default()
-                    .fg(palette.overlay0)
-                    .add_modifier(Modifier::DIM)
-            },
-            badge,
-            config,
-        );
+        let title_style = if active {
+            Style::default()
+                .fg(palette.text)
+                .add_modifier(Modifier::BOLD)
+        } else if entry.tab.custom_label {
+            Style::default().fg(palette.overlay1)
+        } else {
+            Style::default()
+                .fg(palette.overlay0)
+                .add_modifier(Modifier::DIM)
+        };
+        if compact {
+            // No details row: the agent badge stays on the title line.
+            let badge = primary
+                .and_then(|pane| entry.pane_agent(pane))
+                .map(|agent| (strip_agent_name(agent), agent.agent_status));
+            render_strip_line_with_badge(
+                buffer,
+                title_rect,
+                &[tab_label(entry.tab)],
+                title_style,
+                badge,
+                config,
+            );
+        } else {
+            // Per-pane facts (cwd, agent) live on the details row, so the
+            // title row stays meaningful with any number of panes: the tab
+            // title plus the workspace it belongs to.
+            render_strip_title_row(
+                buffer,
+                title_rect,
+                &tab_label(entry.tab),
+                title_style,
+                entry.workspace.label.as_str(),
+                config,
+            );
+        }
         line_y = line_y.saturating_add(1);
 
-        // Context line: repo • branch • workspace.
+        // Details row: cwd leaf • branch, then the primary pane's agent
+        // badge. The leaf comes first (the identity); the branch drops
+        // first when the strip is narrow.
         if !compact {
             if line_y >= inner.bottom() {
                 break;
@@ -654,12 +675,27 @@ fn render_tab_strip_group(
             if active {
                 buffer.set_style(context_rect, Style::default().bg(palette.surface0));
             }
-            render_strip_context_line(buffer, context_rect, entry, config);
+            let badge = primary
+                .and_then(|pane| entry.pane_agent(pane))
+                .map(|agent| (strip_agent_name(agent), agent.agent_status));
+            let leaf = primary.and_then(strip_cwd_leaf);
+            let segments = detail_segments(leaf.as_deref(), entry.workspace.branch.as_deref());
+            render_strip_line_with_badge(
+                buffer,
+                context_rect,
+                &segments,
+                Style::default()
+                    .fg(palette.overlay0)
+                    .add_modifier(Modifier::DIM),
+                badge,
+                config,
+            );
             line_y = line_y.saturating_add(1);
         }
 
-        // Secondary panes, one line each with their own agent badge. Clicks
-        // focus that pane (the hit map routes agents to PaneFocus).
+        // Secondary panes, one line each in the same details format with
+        // their own agent badge. Clicks focus that pane (the hit map
+        // routes agents to PaneFocus).
         for pane in &entry.panes {
             if primary.is_some_and(|primary| primary.pane_id == pane.pane_id) {
                 continue;
@@ -674,20 +710,22 @@ fn render_tab_strip_group(
             let pane_badge = entry
                 .pane_agent(pane)
                 .map(|agent| (strip_agent_name(agent), agent.agent_status));
-            let title_style = if pane.focused {
+            let pane_style = if pane.focused {
                 Style::default().fg(palette.overlay1)
             } else {
                 Style::default()
                     .fg(palette.overlay0)
                     .add_modifier(Modifier::DIM)
             };
+            let mut segments = match pane.label.as_deref().filter(|label| !label.is_empty()) {
+                Some(label) => vec![label.to_owned()],
+                None => vec![strip_cwd_leaf(pane).unwrap_or_else(|| "pane".to_owned())],
+            };
+            if let Some(branch) = &entry.workspace.branch {
+                segments.push(branch.clone());
+            }
             render_strip_line_with_badge(
-                buffer,
-                pane_rect,
-                &strip_pane_title(pane),
-                title_style,
-                pane_badge,
-                config,
+                buffer, pane_rect, &segments, pane_style, pane_badge, config,
             );
             hits.agents.push((pane_rect, pane.pane_id.clone()));
             line_y = line_y.saturating_add(1);
@@ -705,24 +743,62 @@ fn strip_agent_name(agent: &crate::protocol::ClientShellAgent) -> Option<&str> {
         .filter(|name| !name.is_empty())
 }
 
-fn strip_pane_title(pane: &crate::protocol::ClientShellPane) -> String {
-    if let Some(label) = pane.label.as_deref().filter(|label| !label.is_empty()) {
-        return label.to_owned();
-    }
-    pane.foreground_cwd
+/// Widest cwd leaf the strip shows: 8 columns, tail ellipsized.
+const MAX_CWD_LEAF_WIDTH: u16 = 8;
+
+/// The pane's cwd leaf — the only part of the path a strip row has room
+/// for — capped to `MAX_CWD_LEAF_WIDTH` columns by ellipsizing the tail.
+fn strip_cwd_leaf(pane: &crate::protocol::ClientShellPane) -> Option<String> {
+    let cwd = pane
+        .foreground_cwd
         .as_deref()
-        .or(pane.cwd.as_deref())
-        .and_then(|cwd| cwd.rsplit('/').next())
-        .filter(|base| !base.is_empty())
-        .map_or_else(|| "pane".to_owned(), str::to_owned)
+        .or(pane.cwd.as_deref())?
+        .trim_end_matches('/');
+    let base = cwd.rsplit('/').next().filter(|base| !base.is_empty())?;
+    Some(ellipsize_tail(base, MAX_CWD_LEAF_WIDTH))
 }
 
-/// Title left-aligned; badge right-aligned with the agent name shown only
-/// when the title keeps a minimum amount of room.
+/// Truncate to `max` display columns, replacing the tail with '…'.
+fn ellipsize_tail(text: &str, max: u16) -> String {
+    use unicode_width::UnicodeWidthChar as _;
+    if display_width(text) <= max {
+        return text.to_owned();
+    }
+    let budget = usize::from(max.saturating_sub(1));
+    let mut kept = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let width = ch.width().unwrap_or(0);
+        if used + width > budget {
+            break;
+        }
+        used += width;
+        kept.push(ch);
+    }
+    kept.push('…');
+    kept
+}
+
+/// Details-row segments: cwd leaf first (the identity), branch second —
+/// rightmost drops first when the strip is narrow.
+fn detail_segments(leaf: Option<&str>, branch: Option<&str>) -> Vec<String> {
+    let mut segments = Vec::new();
+    if let Some(leaf) = leaf {
+        segments.push(leaf.to_owned());
+    }
+    if let Some(branch) = branch {
+        segments.push(branch.to_owned());
+    }
+    segments
+}
+
+/// Left text built from `segments` joined by " • " (rightmost segment
+/// dropped first when narrow); badge right-aligned, the agent name
+/// yielding before its status icon.
 fn render_strip_line_with_badge(
     buffer: &mut Buffer,
     rect: Rect,
-    title: &str,
+    segments: &[String],
     title_style: Style,
     badge: Option<(Option<&str>, crate::api::schema::AgentStatus)>,
     config: &ClientShellConfig,
@@ -747,7 +823,15 @@ fn render_strip_line_with_badge(
         .width
         .saturating_sub(right_width)
         .min(rect.width.saturating_sub(1));
-    put_text(buffer, rect.x, rect.y, title_width, title, title_style);
+    let mut count = segments.len();
+    let text = loop {
+        let text = segments[..count].join(" • ");
+        if display_width(&text) <= title_width || count <= 1 {
+            break text;
+        }
+        count -= 1;
+    };
+    put_text(buffer, rect.x, rect.y, title_width, &text, title_style);
 
     let badge_status = badge.map(|(_, status)| status);
     if right_width == 0 {
@@ -778,48 +862,32 @@ fn render_strip_line_with_badge(
     );
 }
 
-/// repo • branch • workspace, dropping leftmost segments when the strip is
-/// too narrow: the workspace label is the identity, the repo label the most
-/// redundant.
-fn render_strip_context_line(
+/// Title left-aligned; workspace label right-aligned and dim, hidden
+/// before the title drops below its minimum width. The label sits where
+/// the agent badge used to: per-pane facts moved to the details row.
+fn render_strip_title_row(
     buffer: &mut Buffer,
     rect: Rect,
-    entry: &TabStripEntry<'_>,
+    title: &str,
+    title_style: Style,
+    workspace_label: &str,
     config: &ClientShellConfig,
 ) {
-    let palette = &config.palette;
-    let workspace = entry.workspace;
-    let mut segments: Vec<&str> = Vec::new();
-    if let Some(worktree) = &workspace.worktree {
-        segments.push(worktree.label.as_str());
-    }
-    if let Some(branch) = &workspace.branch {
-        segments.push(branch.as_str());
-    }
-    segments.push(workspace.label.as_str());
-    let mut skip = 0;
-    let text = loop {
-        let text = segments
-            .iter()
-            .skip(skip)
-            .copied()
-            .collect::<Vec<_>>()
-            .join(" • ");
-        if display_width(&text) <= rect.width || skip + 1 >= segments.len() {
-            break text;
-        }
-        skip += 1;
+    const MIN_TITLE_WIDTH: u16 = 4;
+    let label_width = display_width(workspace_label);
+    let show_label = label_width > 0 && rect.width >= label_width + 1 + MIN_TITLE_WIDTH;
+    let title_width = if show_label {
+        rect.width.saturating_sub(label_width + 1)
+    } else {
+        rect.width
     };
-    put_text(
-        buffer,
-        rect.x,
-        rect.y,
-        rect.width,
-        &text,
-        Style::default()
-            .fg(palette.overlay0)
-            .add_modifier(Modifier::DIM),
-    );
+    put_text(buffer, rect.x, rect.y, title_width, title, title_style);
+    if show_label {
+        let style = Style::default()
+            .fg(config.palette.overlay0)
+            .add_modifier(Modifier::DIM);
+        put_right_text(buffer, rect, rect.y, workspace_label, style);
+    }
 }
 
 /// Rounded, muted box; returns the inner content rect. Falls back to the

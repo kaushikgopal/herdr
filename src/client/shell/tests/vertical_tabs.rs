@@ -322,3 +322,149 @@ fn strip_wheel_cycles_tabs_across_workspaces() {
         })]);
     assert!(clamped.actions.is_empty(), "clamped at the last tab");
 }
+
+#[test]
+fn strip_details_show_cwd_leaf_branch_and_workspace_on_title() {
+    let mut snapshot = snapshot();
+    snapshot.panes[0].cwd = Some("/repo/karty-b".into());
+    snapshot.panes[0].foreground_cwd = Some("/repo/karty-b".into());
+    snapshot
+        .agents
+        .push(strip_agent("pane_1", "tab_1", AgentStatus::Working));
+    let mut state = strip_state();
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose strip");
+
+    let text = strip_text(&mut state, 80, 24);
+    let rows: Vec<&str> = text.lines().collect();
+    // Row 0 is the box top border, row 1 the title, row 2 the details.
+    let title = rows[1];
+    let details = rows[2];
+    assert!(
+        title.contains("client-shell"),
+        "workspace on title row: {text}"
+    );
+    assert!(
+        !title.contains('●') && !title.contains("pi "),
+        "badge left the title row: {text}"
+    );
+    assert!(details.contains("karty-b"), "cwd leaf missing: {details}");
+    assert!(details.contains("main"), "branch missing: {details}");
+    assert!(
+        !details.contains("client-shell"),
+        "workspace left the details row: {details}"
+    );
+    assert!(
+        details.find("karty-b") < details.find("main"),
+        "leaf folder comes first: {details}"
+    );
+    assert!(
+        details.contains(" pi "),
+        "agent badge on details row: {details}"
+    );
+}
+
+#[test]
+fn strip_cwd_leaf_caps_at_eight_columns() {
+    let mut snapshot = snapshot();
+    snapshot.panes[0].foreground_cwd = Some("/repo/kartyb-sprouts-instructions".into());
+    let mut state = strip_state();
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose strip");
+
+    let text = strip_text(&mut state, 80, 24);
+    assert!(text.contains("kartyb-…"), "8-column leaf: {text}");
+    assert!(!text.contains("kartyb-sprouts"), "full leaf leaked: {text}");
+}
+
+#[test]
+fn strip_details_drop_the_branch_before_the_leaf_when_narrow() {
+    let mut snapshot = snapshot();
+    snapshot
+        .agents
+        .push(strip_agent("pane_1", "tab_1", AgentStatus::Working));
+    let mut config = ClientShellConfig::from_config(&Config::default());
+    config.vertical_tabs = true;
+    config.sidebar_width = 8;
+    config.sidebar_min_width = 5;
+    config.sidebar_max_width = 8;
+    let mut state = ClientShellState::new(config);
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose narrow strip");
+
+    let text = strip_text(&mut state, 80, 24);
+    let details = text.lines().nth(2).expect("details row");
+    assert!(details.contains("repo"), "leaf survives: {text}");
+    assert!(!details.contains("main"), "branch drops first: {text}");
+}
+
+#[test]
+fn strip_drops_the_sidebar_separator_and_stacks_groups_flush() {
+    let mut snapshot = snapshot();
+    let mut second = second_tab();
+    second.workspace_id = "ws_2".into();
+    snapshot.tabs.push(second);
+    let template = snapshot.workspaces[0].clone();
+    snapshot.workspaces.push(ClientShellWorkspace {
+        workspace_id: "ws_2".into(),
+        active_tab_id: "tab_2".into(),
+        number: 2,
+        label: "space-two".into(),
+        focused: false,
+        ..template.clone()
+    });
+    let mut state = strip_state();
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose strip");
+
+    let text = strip_text(&mut state, 80, 24);
+    let rows: Vec<&str> = text.lines().collect();
+    let tops: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.starts_with('╭'))
+        .map(|(index, _)| index)
+        .collect();
+    let bottoms: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.starts_with('╰'))
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(tops.len(), 2, "two group boxes: {text}");
+    assert_eq!(bottoms.len(), 2, "two group boxes: {text}");
+    assert_eq!(bottoms[0] + 1, tops[1], "groups stack flush: {text}");
+    let last_bottom = bottoms[1];
+    for row in &rows[last_bottom + 1..] {
+        assert!(
+            !row.chars().take(26).any(|ch| ch == '│'),
+            "no stray separator below the last box: {text}"
+        );
+    }
+}
+
+#[test]
+fn compact_strip_keeps_the_badge_on_the_title_row() {
+    let mut snapshot = snapshot();
+    snapshot
+        .agents
+        .push(strip_agent("pane_1", "tab_1", AgentStatus::Working));
+    let mut config = ClientShellConfig::from_config(&Config::default());
+    config.vertical_tabs = true;
+    config.vertical_tabs_compact = true;
+    let mut state = ClientShellState::new(config);
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose compact strip");
+
+    let text = strip_text(&mut state, 80, 24);
+    assert!(
+        text.contains(" pi "),
+        "badge stays visible in compact: {text}"
+    );
+    assert!(text.contains('●'), "status icon visible in compact: {text}");
+}
