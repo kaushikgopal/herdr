@@ -54,6 +54,13 @@ Each tab renders as a bordered block:
   `overlay0` border for the active tab, `surface_dim` for inactive ones.
   The strip paints `sidebar_bg` only — no sidebar separator `│` (it read as
   a stray border line below the last box).
+- Flush highlight + text padding: the active tab's background bleeds under
+  the adjacent border cells (left/right on every highlighted row; top/bottom
+  border rows when the block touches the group edge), so the block reads
+  continuous with the box instead of floating a half-cell inside it —
+  border glyphs stay drawn on top. Row text is inset one column per side
+  (`STRIP_TEXT_INSET`) so it keeps breathing room from the borders; hit
+  rects keep the full row width.
 
 **Where:**
 
@@ -165,6 +172,12 @@ agents), plus an occasional timing flake in
 passes in isolation.
 
 ## Log
+
+### 2026-09-09 (flush highlight + text padding)
+
+- Active-tab highlight now bleeds under the adjacent border cells (the
+  border glyphs float centered in their own cells, which read as padding
+  between the box and the rows); row text is inset one column per side.
 
 ### 2026-09-09 (details-row rework)
 

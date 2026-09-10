@@ -387,9 +387,9 @@ fn strip_details_drop_the_branch_before_the_leaf_when_narrow() {
         .push(strip_agent("pane_1", "tab_1", AgentStatus::Working));
     let mut config = ClientShellConfig::from_config(&Config::default());
     config.vertical_tabs = true;
-    config.sidebar_width = 8;
+    config.sidebar_width = 10;
     config.sidebar_min_width = 5;
-    config.sidebar_max_width = 8;
+    config.sidebar_max_width = 10;
     let mut state = ClientShellState::new(config);
     state.set_snapshot(Box::new(snapshot));
     state.set_pane_surface(surface());
@@ -467,4 +467,47 @@ fn compact_strip_keeps_the_badge_on_the_title_row() {
         "badge stays visible in compact: {text}"
     );
     assert!(text.contains('●'), "status icon visible in compact: {text}");
+}
+#[test]
+fn active_tab_highlight_bleeds_under_the_box_border() {
+    let mut state = strip_state();
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose strip");
+
+    let text = strip_text(&mut state, 80, 24);
+    let bgs: Vec<Vec<u32>> = state
+        .compose(80, 24)
+        .expect("compose strip")
+        .cells
+        .chunks(80)
+        .map(|row| row.iter().map(|cell| cell.bg).collect())
+        .collect();
+    // Single-tab group: rows 0-3 = top border, title, details, bottom
+    // border; the box spans cols 0-25, inner cols 1-24. The highlight on
+    // the active tab's rows must continue into every adjacent border cell.
+    let highlight = bgs[1][2];
+    assert_eq!(bgs[1][0], highlight, "left border cell flush: {text}");
+    assert_eq!(bgs[1][25], highlight, "right border cell flush: {text}");
+    assert_eq!(bgs[0][1], highlight, "top border row flush: {text}");
+    assert_eq!(bgs[3][1], highlight, "bottom border row flush: {text}");
+    assert_ne!(bgs[6][1], highlight, "no bleed past the box: {text}");
+}
+
+#[test]
+fn strip_rows_inset_their_text_one_column() {
+    let mut state = strip_state();
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose strip");
+
+    let text = strip_text(&mut state, 80, 24);
+    let title: Vec<char> = text.lines().nth(1).expect("title row").chars().collect();
+    // Border at col 0, one padding column, text from col 2; the workspace
+    // label ends a column before the right border.
+    assert_eq!(title[0], '│', "box border: {text}");
+    assert_eq!(title[1], ' ', "left padding column: {text}");
+    assert_eq!(title[2], '1', "title text after padding: {text}");
+    assert_eq!(title[24], ' ', "right padding column: {text}");
+    assert_eq!(title[25], '│', "box border: {text}");
 }

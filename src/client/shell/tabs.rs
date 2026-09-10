@@ -579,6 +579,20 @@ pub(crate) fn render_tab_strip(
     }
 }
 
+/// Text padding inside strip rows: text keeps a column of breathing room
+/// from the box borders while the highlight runs flush beneath them.
+const STRIP_TEXT_INSET: u16 = 1;
+
+/// Inset a strip row's text area by [`STRIP_TEXT_INSET`] on each side.
+fn strip_text_rect(rect: Rect) -> Rect {
+    Rect::new(
+        rect.x.saturating_add(STRIP_TEXT_INSET),
+        rect.y,
+        rect.width.saturating_sub(2 * STRIP_TEXT_INSET),
+        rect.height,
+    )
+}
+
 /// One workspace group: a single rounded box around all its tabs. Each tab
 /// renders a title row (workspace label right-aligned), a details row
 /// (cwd leaf • branch + agent badge), then one line per extra pane in the
@@ -615,11 +629,31 @@ fn render_tab_strip_group(
         let tab_hit_height = (1 + u16::from(!compact)).min(inner.bottom().saturating_sub(line_y));
         let title_rect = Rect::new(inner.x, line_y, inner.width, 1);
         if active {
-            // Muted highlight: the same surface the inactive tabs used to get.
+            // Muted highlight: the same surface the inactive tabs used to
+            // get. It bleeds under the adjacent border cells so the block
+            // reads flush with the box; glyphs stay drawn on top.
+            let highlight = Style::default().bg(palette.surface0);
+            let block_height = entry
+                .line_count(compact)
+                .min(inner.bottom().saturating_sub(line_y));
             buffer.set_style(
                 Rect::new(inner.x, line_y, inner.width, tab_hit_height),
-                Style::default().bg(palette.surface0),
+                highlight,
             );
+            buffer.set_style(Rect::new(rect.x, line_y, 1, block_height), highlight);
+            buffer.set_style(
+                Rect::new(rect.right().saturating_sub(1), line_y, 1, block_height),
+                highlight,
+            );
+            if line_y == inner.y {
+                buffer.set_style(Rect::new(rect.x, rect.y, rect.width, 1), highlight);
+            }
+            if line_y + entry.line_count(compact) >= inner.bottom() {
+                buffer.set_style(
+                    Rect::new(rect.x, rect.bottom().saturating_sub(1), rect.width, 1),
+                    highlight,
+                );
+            }
         }
         hits.tabs.push((
             Rect::new(inner.x, line_y, inner.width, tab_hit_height),
@@ -643,7 +677,7 @@ fn render_tab_strip_group(
                 .map(|agent| (strip_agent_name(agent), agent.agent_status));
             render_strip_line_with_badge(
                 buffer,
-                title_rect,
+                strip_text_rect(title_rect),
                 &[tab_label(entry.tab)],
                 title_style,
                 badge,
@@ -655,7 +689,7 @@ fn render_tab_strip_group(
             // title plus the workspace it belongs to.
             render_strip_title_row(
                 buffer,
-                title_rect,
+                strip_text_rect(title_rect),
                 &tab_label(entry.tab),
                 title_style,
                 entry.workspace.label.as_str(),
@@ -682,7 +716,7 @@ fn render_tab_strip_group(
             let segments = detail_segments(leaf.as_deref(), entry.workspace.branch.as_deref());
             render_strip_line_with_badge(
                 buffer,
-                context_rect,
+                strip_text_rect(context_rect),
                 &segments,
                 Style::default()
                     .fg(palette.overlay0)
@@ -725,7 +759,12 @@ fn render_tab_strip_group(
                 segments.push(branch.clone());
             }
             render_strip_line_with_badge(
-                buffer, pane_rect, &segments, pane_style, pane_badge, config,
+                buffer,
+                strip_text_rect(pane_rect),
+                &segments,
+                pane_style,
+                pane_badge,
+                config,
             );
             hits.agents.push((pane_rect, pane.pane_id.clone()));
             line_y = line_y.saturating_add(1);
