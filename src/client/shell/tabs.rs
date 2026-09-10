@@ -457,7 +457,6 @@ pub(crate) fn render_tab_strip(
     if area.width == 0 || area.height == 0 {
         return;
     }
-
     let content = if config.mouse_capture {
         Rect::new(
             area.x,
@@ -468,6 +467,16 @@ pub(crate) fn render_tab_strip(
     } else {
         area
     };
+    // The strip stays mouse-resizable like the sidebar it replaced: the box
+    // border column arms the upstream SidebarWidth drag. Content rows only —
+    // the chrome row's right corner owns the ▲▼ buttons. Tab hit rects stop
+    // at the inner edge, so no tab click is stolen.
+    hits.sidebar_divider = Rect::new(
+        content.right().saturating_sub(1),
+        content.y,
+        1,
+        content.height,
+    );
 
     let focused_tabs = snapshot
         .tabs

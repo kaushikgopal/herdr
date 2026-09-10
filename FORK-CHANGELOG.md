@@ -61,6 +61,12 @@ Each tab renders as a bordered block:
   border glyphs stay drawn on top. Row text is inset one column per side
   (`STRIP_TEXT_INSET`) so it keeps breathing room from the borders; hit
   rects keep the full row width.
+- Mouse resize: `render_tab_strip` arms the upstream `SidebarWidth` drag by
+  setting `hits.sidebar_divider` to the strip's last column, content rows
+  only (the chrome row's right corner owns the ▲▼ buttons — a full-height
+  divider swallows their clicks). Tab hit rects stop at the inner edge, so
+  no tab click is stolen. Drag resizes; double-click resets; width persists
+  through the existing chrome-preferences path.
 
 **Where:**
 
@@ -216,6 +222,12 @@ passes in isolation.
   rebase, stop-and-flag on protocol conflicts.
 - Added scripts/test_fork_changelog_check.py (maintenance-test): fails when
   mapped files/symbols drift after an upstream pull.
+
+### 2026-09-09 (strip mouse resize)
+
+- The strip is mouse-resizable again (it never was: the strip commit never
+  set `hits.sidebar_divider`): the box border column arms the upstream
+  `SidebarWidth` drag on content rows only, so the ▲▼ chrome stays clickable.
 
 ### 2026-09-09 (flush highlight + text padding)
 

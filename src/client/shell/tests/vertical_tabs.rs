@@ -511,3 +511,101 @@ fn strip_rows_inset_their_text_one_column() {
     assert_eq!(title[24], ' ', "right padding column: {text}");
     assert_eq!(title[25], '│', "box border: {text}");
 }
+
+#[test]
+fn strip_stays_mouse_resizable_through_the_divider_hit() {
+    let mut state = strip_state();
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose strip");
+
+    let divider = state.hits.sidebar_divider;
+    assert_eq!(divider.width, 1, "hit zone is the strip's last column");
+    assert_eq!(
+        divider.height, 23,
+        "content rows only (chrome owns the bottom): {divider:?}"
+    );
+    let default_width = state.sidebar_width;
+
+    // Grab the divider and drag it in: width follows the drop column.
+    let drag = |column: u16| crossterm::event::MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column,
+        row: 5,
+        modifiers: KeyModifiers::empty(),
+    };
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: divider.x,
+        row: 5,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    state.handle_raw_events(vec![RawInputEvent::Mouse(drag(20))]);
+    assert_eq!(
+        state.sidebar_width, 21,
+        "drag sets the width from the column"
+    );
+    state.handle_raw_events(vec![RawInputEvent::Mouse(drag(34))]);
+    assert_eq!(state.sidebar_width, 35, "drag grows the width");
+
+    // Double-click on the divider resets to the configured default. The
+    // resize invalidated the pane surface; the live client gets a fresh
+    // projection from the server — restore it, recompose, and re-read the
+    // divider at its new edge column (width 35 → x=34).
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("recompose after resize");
+    let divider = state.hits.sidebar_divider;
+    assert_eq!(divider.x, 34, "divider tracks the new width: {divider:?}");
+    let press = crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: divider.x,
+        row: 5,
+        modifiers: KeyModifiers::empty(),
+    };
+    state.handle_raw_events(vec![RawInputEvent::Mouse(press)]);
+    state.handle_raw_events(vec![RawInputEvent::Mouse(press)]);
+    assert_eq!(state.sidebar_width, default_width, "double-click resets");
+}
+
+#[test]
+fn scratch_debug_divider() {
+    let mut state = strip_state();
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose strip");
+    let divider = state.hits.sidebar_divider;
+    eprintln!("divider={divider:?} width={}", state.sidebar_width);
+    let mouse = |kind: MouseEventKind, column: u16| {
+        RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind,
+            column,
+            row: 5,
+            modifiers: KeyModifiers::empty(),
+        })
+    };
+    state.handle_raw_events(vec![mouse(
+        MouseEventKind::Down(MouseButton::Left),
+        divider.x,
+    )]);
+    eprintln!(
+        "after grab: width={} drag={:?}",
+        state.sidebar_width,
+        state.chrome_drag.is_some()
+    );
+    state.handle_raw_events(vec![mouse(MouseEventKind::Drag(MouseButton::Left), 20)]);
+    eprintln!("after drag 20: width={}", state.sidebar_width);
+    state.handle_raw_events(vec![mouse(
+        MouseEventKind::Down(MouseButton::Left),
+        divider.x,
+    )]);
+    eprintln!(
+        "after down: width={} last_click={:?}",
+        state.sidebar_width,
+        state.last_sidebar_divider_click.is_some()
+    );
+    state.handle_raw_events(vec![mouse(
+        MouseEventKind::Down(MouseButton::Left),
+        divider.x,
+    )]);
+    eprintln!("after down2: width={}", state.sidebar_width);
+}
