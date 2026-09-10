@@ -252,3 +252,25 @@ passes in isolation.
 - Added the fork Makefile.
 - Fork point: upstream `120c6820` ("fix: restore connected session navigator
   tree glyphs (#3861)").
+
+### 2026-09-10 (upstream sync)
+
+- Merged upstream/master `120c6820..90e947a6` (11 commits). Clean merge,
+  zero conflicts: upstream's mouse-selection work (repaint cadence #3901,
+  pane selection highlights #3894) touched `shell/mouse.rs` and
+  `shell/state.rs` in regions disjoint from the strip's handlers/config,
+  so both mapped shared files auto-merged with no rework.
+- Notable fixes absorbed: bounded mouse selection repaint cadence (#3901),
+  host background for pane selection highlights (#3894), WezTerm control
+  key reports (#3592), machine add options before the SSH target (#3897),
+  focused viewer geometry during activation (#3746), legacy Windows mouse
+  reports over ssh (#3742), Linux desktop notification identification
+  (#3639), session names after option terminator (#3222), spaces sidebar
+  resize stability (#3862), token selection stops at CJK punctuation
+  (#3708), Windows session paths for pi (#3729).
+- Validation green: fork-map drift test, vertical_tabs (17/17), clippy on
+  the pinned toolchain, nextest 3179 passed (only the 4 documented
+  baseline failures), maintenance-test (105), ui-hot-path (6); the
+  release build refreshed the `make install` symlink.
+- Fork point: upstream `90e947a6` ("fix: bound mouse selection repaint
+  cadence (#3901)").
