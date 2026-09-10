@@ -630,12 +630,17 @@ fn render_tab_strip_group(
         let active = entry.tab.focused;
         let primary = entry.primary_pane();
 
-        // Title line. The tab hit region stops before the pane lines so
-        // pane rows can route clicks to their own pane.
+        // Title line. The details row below counts as the primary pane's
+        // row: when that pane exists it routes PaneFocus (which switches
+        // tab and workspace too), so clicking the first pane switches to it
+        // like every other pane row. Without a primary pane the details
+        // row stays part of the tab hit.
+        let details_is_pane_hit = !compact && primary.is_some();
+        let tab_hit_height = (1 + u16::from(!compact && !details_is_pane_hit))
+            .min(inner.bottom().saturating_sub(line_y));
         if line_y >= inner.bottom() {
             break;
         }
-        let tab_hit_height = (1 + u16::from(!compact)).min(inner.bottom().saturating_sub(line_y));
         let title_rect = Rect::new(inner.x, line_y, inner.width, 1);
         if active {
             // Muted highlight: the same surface the inactive tabs used to
@@ -709,7 +714,9 @@ fn render_tab_strip_group(
 
         // Details row: cwd leaf • branch, then the primary pane's agent
         // badge. The leaf comes first (the identity); the branch drops
-        // first when the strip is narrow.
+        // first when the strip is narrow. The text color follows the
+        // primary pane's state — same convention as the pane rows below:
+        // focused pane reads brighter, everything else stays dim.
         if !compact {
             if line_y >= inner.bottom() {
                 break;
@@ -723,16 +730,23 @@ fn render_tab_strip_group(
                 .map(|agent| (strip_agent_name(agent), agent.agent_status));
             let leaf = primary.and_then(strip_cwd_leaf);
             let segments = detail_segments(leaf.as_deref(), entry.workspace.branch.as_deref());
+            let details_style = match primary {
+                Some(pane) if pane.focused => Style::default().fg(palette.overlay1),
+                _ => Style::default()
+                    .fg(palette.overlay0)
+                    .add_modifier(Modifier::DIM),
+            };
             render_strip_line_with_badge(
                 buffer,
                 strip_text_rect(context_rect),
                 &segments,
-                Style::default()
-                    .fg(palette.overlay0)
-                    .add_modifier(Modifier::DIM),
+                details_style,
                 badge,
                 config,
             );
+            if let Some(primary) = primary {
+                hits.agents.push((context_rect, primary.pane_id.clone()));
+            }
             line_y = line_y.saturating_add(1);
         }
 

@@ -61,6 +61,16 @@ Each tab renders as a bordered block:
   border glyphs stay drawn on top. Row text is inset one column per side
   (`STRIP_TEXT_INSET`) so it keeps breathing room from the borders; hit
   rects keep the full row width.
+- First-pane click: the details row IS the primary pane's row — it routes
+  `PaneFocus` for that pane (which switches tab + workspace too), so the
+  first pane switches like every other pane row even when its tab is
+  already focused (TabFocus there was a no-op). Without a primary pane the
+  details row stays part of the tab hit. The title row alone sends
+  `TabFocus`.
+- Details-row color follows the primary pane's state (same convention as
+  the pane rows): focused pane reads `overlay1`, everything else stays
+  dim — the row no longer renders the inactive color when the first pane
+  is the focused pane.
 - Mouse resize: `render_tab_strip` arms the upstream `SidebarWidth` drag by
   setting `hits.sidebar_divider` to the strip's last column, content rows
   only (the chrome row's right corner owns the ▲▼ buttons — a full-height
@@ -222,6 +232,17 @@ passes in isolation.
   rebase, stop-and-flag on protocol conflicts.
 - Added scripts/test_fork_changelog_check.py (maintenance-test): fails when
   mapped files/symbols drift after an upstream pull.
+
+### 2026-09-09 (details-row color)
+
+- The details row text follows the primary pane's state (focused pane =
+  `overlay1`, else dim) instead of always rendering the inactive color.
+
+### 2026-09-09 (first-pane click)
+
+- The details row routes PaneFocus for the primary pane, so clicking the
+  first pane's row switches to it like every other pane row (TabFocus on
+  an already-focused tab was a no-op); the title row alone sends TabFocus.
 
 ### 2026-09-09 (strip mouse resize)
 

@@ -67,7 +67,7 @@ fn strip_renders_title_agent_badge_and_context_line() {
     assert_eq!(state.hits.tabs.len(), 1);
     let (rect, tab_id) = &state.hits.tabs[0];
     assert_eq!(tab_id, "tab_1");
-    assert_eq!(rect.height, 2, "clickable region: title + context");
+    assert_eq!(rect.height, 1, "clickable tab region: title row only");
 
     let text = strip_text(&mut state, 80, 24);
     assert!(text.contains('●'), "agent status icon missing: {text}");
@@ -129,8 +129,8 @@ fn extra_panes_render_below_the_tab_line_inside_the_group() {
 
     let (rect, _) = &state.hits.tabs[0];
     assert_eq!(
-        rect.height, 2,
-        "clickable region stays title + context even with panes"
+        rect.height, 1,
+        "details row routes to the pane, not the tab"
     );
     let text = strip_text(&mut state, 80, 24);
     assert!(text.contains("feature"), "pane cwd title missing: {text}");
@@ -568,44 +568,103 @@ fn strip_stays_mouse_resizable_through_the_divider_hit() {
 }
 
 #[test]
-fn scratch_debug_divider() {
+fn clicking_the_details_row_focuses_the_first_pane() {
+    let mut snapshot = snapshot();
+    let mut second_pane = snapshot.panes[0].clone();
+    second_pane.pane_id = "pane_2".into();
+    second_pane.cwd = Some("/repo/feature".into());
+    second_pane.foreground_cwd = Some("/repo/feature".into());
+    second_pane.focused = false;
+    snapshot.panes.push(second_pane);
+    let mut state = strip_state();
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose multi-pane strip");
+
+    // The details row (row 2: the primary pane's cwd) carries a pane hit,
+    // so the first pane switches like every other pane row — including
+    // when its tab is already focused, where TabFocus was a no-op.
+    let (details_rect, pane_id) = state
+        .hits
+        .agents
+        .iter()
+        .find(|(rect, _)| rect.y == 2)
+        .expect("details row pane hit")
+        .clone();
+    assert_eq!(pane_id, "pane_1");
+    let down = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: details_rect.x + 1,
+        row: details_rect.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    let [ClientShellAction::Endpoint { request, .. }] = &down.actions[..] else {
+        panic!("details click should use endpoint API");
+    };
+    assert!(matches!(
+        &request.method,
+        crate::api::schema::Method::PaneFocus(params) if params.pane_id == "pane_1"
+    ));
+}
+
+#[test]
+fn details_row_color_follows_the_primary_pane_state() {
+    use crate::protocol::CellData;
+    let packed_fg = |color: ratatui::style::Color| {
+        let mut cell = ratatui::buffer::Cell::EMPTY;
+        cell.set_style(Style::default().fg(color));
+        CellData::from_ratatui_cell(&cell).fg
+    };
+    let details_fg = |state: &mut ClientShellState, row: u16| {
+        state
+            .compose(80, 24)
+            .expect("compose strip")
+            .cells
+            .chunks(80)
+            .nth(row as usize)
+            .expect("details row")
+            .iter()
+            .find(|cell| cell.symbol != " " && cell.symbol != "│")
+            .expect("details text cell")
+            .fg
+    };
+    let palette = {
+        let state = strip_state();
+        state.config.palette
+    };
     let mut state = strip_state();
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.compose(80, 24).expect("compose strip");
-    let divider = state.hits.sidebar_divider;
-    eprintln!("divider={divider:?} width={}", state.sidebar_width);
-    let mouse = |kind: MouseEventKind, column: u16| {
-        RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind,
-            column,
-            row: 5,
-            modifiers: KeyModifiers::empty(),
-        })
-    };
-    state.handle_raw_events(vec![mouse(
-        MouseEventKind::Down(MouseButton::Left),
-        divider.x,
-    )]);
-    eprintln!(
-        "after grab: width={} drag={:?}",
-        state.sidebar_width,
-        state.chrome_drag.is_some()
+
+    // Active tab whose primary pane is the focused pane: the details row
+    // reads the focused-pane color, not the inactive dim color.
+    assert_eq!(
+        details_fg(&mut state, 2),
+        packed_fg(palette.overlay1),
+        "focused primary pane reads bright"
     );
-    state.handle_raw_events(vec![mouse(MouseEventKind::Drag(MouseButton::Left), 20)]);
-    eprintln!("after drag 20: width={}", state.sidebar_width);
-    state.handle_raw_events(vec![mouse(
-        MouseEventKind::Down(MouseButton::Left),
-        divider.x,
-    )]);
-    eprintln!(
-        "after down: width={} last_click={:?}",
-        state.sidebar_width,
-        state.last_sidebar_divider_click.is_some()
+
+    // Inactive tab: the details row stays dim.
+    let mut snapshot = snapshot();
+    let mut second = second_tab();
+    second.workspace_id = "ws_2".into();
+    snapshot.tabs.push(second);
+    let template = snapshot.workspaces[0].clone();
+    snapshot.workspaces.push(ClientShellWorkspace {
+        workspace_id: "ws_2".into(),
+        active_tab_id: "tab_2".into(),
+        number: 2,
+        label: "space-two".into(),
+        focused: false,
+        ..template.clone()
+    });
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(80, 24).expect("compose strip");
+    assert_eq!(
+        details_fg(&mut state, 6),
+        packed_fg(palette.overlay0),
+        "inactive tab stays dim"
     );
-    state.handle_raw_events(vec![mouse(
-        MouseEventKind::Down(MouseButton::Left),
-        divider.x,
-    )]);
-    eprintln!("after down2: width={}", state.sidebar_width);
 }
