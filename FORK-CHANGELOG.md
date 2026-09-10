@@ -132,6 +132,41 @@ byte-identical to stable): server, agent, pane, workspace, tab, session,
 machine, api, config, worktree, notification, integration subcommands all
 work against the running server.
 
+### 3. Upstream sync tooling — `/sync-upstream` + drift test
+
+A project-local pi prompt (`.pi/prompts/sync-upstream.md`, run as
+`/sync-upstream [--dry-run]`) that systematizes upstream pulls:
+preconditions (clean tree, master, force-push guard), impact preview
+(carried diff × incoming commits), merge with a `pre-sync/<date>` rollback
+anchor, map-driven conflict resolution (fork-owned files keep the fork
+side; shared files take upstream structure + re-applied fork behavior;
+protocol/wire conflicts STOP and ask), the phase-3 validation battery,
+and a FORK-CHANGELOG.md Log update + single sync commit. Merge, never
+rebase.
+
+`scripts/test_fork_changelog_check.py` (registered in
+`just maintenance-test`) guards the map itself: every `src/`/`docs/` path
+referenced by FORK-CHANGELOG.md must exist, every load-bearing symbol in
+its `MAPPED_SYMBOLS` list must still exist in its mapped file, and
+AGENTS.md must keep requiring changelog tracking. After an upstream pull
+that renames or moves fork integration points, this fails first and
+points at the stale map entry.
+
+**Where:**
+
+- `.pi/prompts/sync-upstream.md` — the sync runbook prompt.
+- `scripts/test_fork_changelog_check.py` — map-drift maintenance test
+  (`MAPPED_SYMBOLS` mirrors the Where sections; keep both in sync).
+- `justfile` — maintenance-test registration.
+- `AGENTS.md` — fork rules referencing the test + the prompt.
+
+**Re-check after upstream pulls:**
+
+- `MAPPED_SYMBOLS` in the test vs the changelog's Where sections — update
+  together when symbols move.
+- The pinned-toolchain PATH in the prompt's clippy step tracks
+  `rust-toolchain.toml` (1.96.1 today).
+
 ## Gotchas (learned the hard way)
 
 - **Debug builds are sandboxed.** `cfg!(debug_assertions)` redirects the
@@ -172,6 +207,15 @@ agents), plus an occasional timing flake in
 passes in isolation.
 
 ## Log
+
+### 2026-09-09 (sync tooling)
+
+- Added `/sync-upstream` (.pi/prompts/sync-upstream.md): four-phase runbook
+  (preconditions → impact preview → merge with map-driven conflict
+  playbook → validation + paper trail), --dry-run support, merge-never-
+  rebase, stop-and-flag on protocol conflicts.
+- Added scripts/test_fork_changelog_check.py (maintenance-test): fails when
+  mapped files/symbols drift after an upstream pull.
 
 ### 2026-09-09 (flush highlight + text padding)
 

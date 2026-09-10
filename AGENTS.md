@@ -307,13 +307,17 @@ These rules are final for anyone who is not a verified maintainer under Scope an
 ## Fork rules (kaushikgopal/herdr)
 
 This checkout is the `kaushikgopal/herdr` fork carrying local UI customizations
-on top of upstream. Two standing rules apply to every agent working here:
+on top of upstream. Three standing rules apply to every agent working here:
 
 - **Every change introduced in this fork must be tracked in
   `FORK-CHANGELOG.md`** — the durable customization map used to re-apply and
   re-verify fork changes after pulling upstream. No exceptions: code, config,
   docs, build files. Add or update the entry in the same session as the change.
+- **Every code customization lands with tests that detect its breakage** —
+  behavior tests (see `src/client/shell/tests/vertical_tabs.rs`) and its
+  mapped symbols registered in `scripts/test_fork_changelog_check.py`, so
+  upstream pulls fail fast instead of silently rotting the fork. Run syncs
+  through `/sync-upstream` (`.pi/prompts/sync-upstream.md`).
 - Session-by-session work notes live in `.agents/dox/` (kept local via
   `.git/info/exclude`). `FORK-CHANGELOG.md` is the durable record; the dox
   notes are the working log.
-
