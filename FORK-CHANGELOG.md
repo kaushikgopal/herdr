@@ -106,9 +106,11 @@ runner is still `just`; the Makefile exists because debug-vs-stable toolchain
 quirks are easy to get wrong (see gotchas below).
 
 `make install` symlinks `target/release/herdr` to
-`~/.config/gohan/bin/herdr` (first on PATH via fish_user_paths), so plain
-`herdr` runs the fork; the brew install stays for rollback — remove the
-symlink to fall back. The fork binary is the full herdr CLI (help output is
+`$XDG_BIN_HOME/herdr` (default `~/.local/bin`; fish PATH precedence puts
+`$XDG_BIN_HOME` ahead of `/opt/homebrew/bin`), so plain `herdr` runs the
+fork; the brew install stays for rollback — remove the symlink to fall
+back. If PATH precedence changes, `herdr` silently reverts to brew
+(`which -a herdr` shows both). The fork binary is the full herdr CLI (help output is
 byte-identical to stable): server, agent, pane, workspace, tab, session,
 machine, api, config, worktree, notification, integration subcommands all
 work against the running server.
@@ -157,7 +159,8 @@ passes in isolation.
 ### 2026-09-10
 
 - `make install` symlinks the release binary over the daily `herdr` command
-  (via ~/.config/gohan/bin, first on PATH); brew stable remains the fallback.
+  (into `$XDG_BIN_HOME`, which precedes /opt/homebrew/bin on PATH); brew
+  stable remains the fallback.
 - Added the vertical tab strip behind `ui.vertical_tabs`: left-hand strip,
   all workspaces' tabs in one rounded box per workspace (no headers), per-tab
   agent badge inline (name hidden when tight), `repo • branch • workspace`
