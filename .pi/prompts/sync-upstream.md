@@ -75,8 +75,13 @@ commits are already pushed, and the map is written to keep merges shallow.
    `federated_launch_*` flake that passes isolated) are NOT regressions.
    Any other failure is: root-cause it before continuing.
 5. `just maintenance-test` and `just ui-hot-path-architecture-test`.
-6. `cargo build --release` so the installed daily `herdr` (symlink) picks
-   up the sync.
+6. Build through the user path so the Makefile's toolchain wiring gets
+   exercised too: `make build` (debug profile; the Makefile resolves the
+   pinned Rust toolchain and Zig itself), then `make install` (release
+   build + refresh the daily `herdr` symlink). Plain `cargo` invocations
+   in steps 2-4 need `ZIG=$HOME/zig-0.16.0/zig` exported — the vendored
+   libghostty-vt pins Zig and build.rs hard-fails older versions; check
+   FORK-CHANGELOG.md Gotchas for the current pins before assuming paths.
 
 ## Phase 4 — Paper trail + commit
 

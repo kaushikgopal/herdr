@@ -134,9 +134,12 @@ flush group stacking, overflow scrolling).
 config + sessions) / `make stop-dev` / `make test` / `make check` / `make
 install`. The repo's canonical runner is still `just`; the Makefile exists
 because debug-vs-stable toolchain quirks are easy to get wrong (see gotchas
-below). There is deliberately no stop-release: stopping the live server is
-`herdr server stop` (kills all panes/agents) and should not sit one
-tab-completion away.
+below). Build targets resolve the toolchain pins themselves — the rustup
+toolchain on PATH and `ZIG` (prefers `~/zig-0.16.0/zig`, env/command-line
+override wins) — so make-driven builds track the vendored libghostty-vt's
+current Zig requirement. There is deliberately no stop-release: stopping
+the live server is `herdr server stop` (kills all panes/agents) and should
+not sit one tab-completion away.
 
 `make install` symlinks `target/release/herdr` to
 `$XDG_BIN_HOME/herdr` (default `~/.local/bin`; fish PATH precedence puts
@@ -199,8 +202,10 @@ points at the stale map entry.
   files. The Makefile prepends the matching rustup toolchain to PATH.
 - **Builds need Zig 0.16.0.** Upstream's libghostty-vt upgrade (425c8617)
   hard-fails older Zig in build.rs. System zig is 0.15.2 (brew zig@0.15,
-  kept for other work), so build/test commands run with
-  `ZIG=$HOME/zig-0.16.0/zig` (0.16.0 installed at ~/zig-0.16.0).
+  kept for other work); 0.16.0 is installed at ~/zig-0.16.0. Make targets
+  export `ZIG` themselves (env override wins); plain `cargo` invocations
+  still need `ZIG=$HOME/zig-0.16.0/zig` exported by hand. The
+  `/sync-upstream` build step verifies the make path on every sync.
 - **Unknown config keys are ignored** by stock herdr (`#[serde(default)]`,
   no `deny_unknown_fields`), so sharing one `~/.config/herdr/config.toml`
   between stable and fork is safe.
@@ -337,3 +342,13 @@ passes in isolation.
   ui-hot-path (6); the release build refreshed the `make install` symlink.
 - Fork point: upstream `c7a7cc45` ("fix: lint all targets on windows
   (#3963)").
+
+### 2026-09-11 (make zig pin)
+
+- `make build`/`make install` broke right after the sync: the Makefile
+  exported `ZIG` resolved to brew's zig 0.15.2 while upstream now pins
+  0.16.0 — the make path never saw the sync-session env export. Build
+  targets now prefer `~/zig-0.16.0/zig` (env/command-line `ZIG` still
+  wins) and fall back to PATH/brew; `/sync-upstream` Phase 3 step 6 now
+  verifies the build through `make build` + `make install` so the user
+  path is covered on every sync.
