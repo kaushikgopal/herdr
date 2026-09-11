@@ -197,6 +197,10 @@ points at the stale map entry.
 - **Clippy needs the pinned toolchain.** rust-toolchain.toml pins 1.96.1;
   Homebrew's newer Rust fails `clippy -- -D warnings` on untouched upstream
   files. The Makefile prepends the matching rustup toolchain to PATH.
+- **Builds need Zig 0.16.0.** Upstream's libghostty-vt upgrade (425c8617)
+  hard-fails older Zig in build.rs. System zig is 0.15.2 (brew zig@0.15,
+  kept for other work), so build/test commands run with
+  `ZIG=$HOME/zig-0.16.0/zig` (0.16.0 installed at ~/zig-0.16.0).
 - **Unknown config keys are ignored** by stock herdr (`#[serde(default)]`,
   no `deny_unknown_fields`), so sharing one `~/.config/herdr/config.toml`
   between stable and fork is safe.
@@ -307,3 +311,29 @@ passes in isolation.
   release build refreshed the `make install` symlink.
 - Fork point: upstream `90e947a6` ("fix: bound mouse selection repaint
   cadence (#3901)").
+
+### 2026-09-11 (upstream sync)
+
+- Merged upstream/master `90e947a6..c7a7cc45` (14 commits). One conflict:
+  justfile `maintenance-test` line (fork added `test_fork_changelog_check`,
+  upstream added `test_windows_cross`) — resolved by keeping both scripts
+  in the list; upstream's new `setup-windows-cross` / `windows-lint` /
+  `libghostty-bindings` recipes taken as-is. `AGENTS.md`,
+  `shell/config.rs`, `shell/state.rs` auto-merged in disjoint regions
+  (vertical_tabs config threading + layout branch and the Fork rules
+  section intact).
+
+- Notable fixes absorbed: libghostty-vt upgrade + snapshot consistency
+  while scrolling (#3906, #3928), conditional sidebar token hiding
+  (#3925), CLI routing to saved SSH machines (#3918), cline launcher/idle
+  detection (#3959), claude unicode spinner (#3953), Windows Codex paste
+  flush (#3961), Windows lint all targets (#3963), local kitty graphics
+  transport (#3957), plugin registry symlinks (#3927), zig version error
+  message (#3931).
+- New build prerequisite: Zig 0.16.0 — see Gotchas.
+- Validation green: fork-map drift test, vertical_tabs (20/20), clippy on
+  the pinned toolchain, nextest 3206/3208 (only the documented baseline
+  failures), maintenance-test (incl. new `test_windows_cross`),
+  ui-hot-path (6); the release build refreshed the `make install` symlink.
+- Fork point: upstream `c7a7cc45` ("fix: lint all targets on windows
+  (#3963)").
