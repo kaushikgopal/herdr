@@ -384,8 +384,13 @@ impl ClientShellConfig {
             crate::config::validated_sidebar_bounds(self.sidebar_min_width, self.sidebar_max_width)
                 .unwrap_or((18, 36));
         let sidebar_width = if self.vertical_tabs {
-            // The strip replaces the sidebar wholesale; collapse does not apply.
-            sidebar_width.clamp(min, max)
+            // The strip replaces the sidebar wholesale; collapse hides it
+            // entirely — a compact 4-column strip would only clip the boxes.
+            if sidebar_collapsed {
+                0
+            } else {
+                sidebar_width.clamp(min, max)
+            }
         } else if sidebar_collapsed {
             match self.sidebar_collapsed_mode {
                 SidebarCollapsedModeConfig::Compact => 4,
@@ -569,13 +574,29 @@ mod tests {
     }
 
     #[test]
-    fn vertical_tabs_ignores_sidebar_collapse_and_tab_bar_hiding() {
+    fn vertical_tabs_collapse_hides_the_strip_until_toggled_back() {
         let mut shell = ClientShellConfig::from_config(&Config::default());
         shell.vertical_tabs = true;
 
-        let layout = shell.layout(80, 24, true, 1, 26);
+        let expanded = shell.layout(80, 24, false, 3, 26);
+        let collapsed = shell.layout(80, 24, true, 3, 26);
+        let restored = shell.layout(80, 24, false, 3, 26);
 
-        assert_eq!(layout.tab_strip.width, 26);
+        assert!(collapsed.tab_strip.is_empty());
+        assert!(collapsed.sidebar.is_empty());
+        assert_eq!(collapsed.pane_surface, Rect::new(0, 0, 80, 24));
+        assert_eq!(restored.tab_strip.width, expanded.tab_strip.width);
+        assert_eq!(restored.pane_surface, expanded.pane_surface);
+    }
+
+    #[test]
+    fn vertical_tabs_ignores_tab_bar_hiding_when_single_tab() {
+        let mut shell = ClientShellConfig::from_config(&Config::default());
+        shell.vertical_tabs = true;
+
+        let layout = shell.layout(80, 24, false, 1, 26);
+
+        assert!(layout.tab_bar.is_empty());
         assert_eq!(layout.pane_surface.height, 24);
     }
 }

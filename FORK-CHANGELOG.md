@@ -84,7 +84,9 @@ Each tab renders as a bordered block:
   vertical_tabs_compact}`, `ClientShellLayout.tab_strip`.
 - `src/client/shell/config.rs` — config threading (`from_config`,
   `apply_live_config`) and the layout branch in `ClientShellConfig::layout()`
-  (strip replaces sidebar + tab bar; ignores sidebar collapse).
+  (strip replaces sidebar + tab bar; collapse hides the strip entirely —
+  `prefix+b`/ToggleSidebar toggles it back, persisting through chrome
+  preferences like upstream's sidebar).
 - `src/client/shell/tabs.rs` — `render_tab_strip`, `render_tab_strip_group`
   (one box per workspace), `render_strip_line_with_badge` (segment-based,
   drops rightmost when narrow), `render_strip_title_row`, `strip_cwd_leaf` /
@@ -352,3 +354,14 @@ passes in isolation.
   wins) and fall back to PATH/brew; `/sync-upstream` Phase 3 step 6 now
   verifies the build through `make build` + `make install` so the user
   path is covered on every sync.
+
+### 2026-09-11 (strip collapse toggle)
+
+- `prefix+b` (ToggleSidebar) did nothing in strip mode: the layout branch
+  ignored `sidebar_collapsed` (deliberate at strip time — the strip
+  replaced the sidebar wholesale). The strip now honors collapse: hidden
+  entirely (a compact 4-column strip would only clip the boxes), same key
+  restores the prior width; state persists through the existing
+  chrome-preferences path. Replaced the
+  `vertical_tabs_ignores_sidebar_collapse_...` test with collapse/restore
+  + tab-bar-hiding-ignored coverage.
