@@ -233,6 +233,18 @@ agents), plus an occasional timing flake in
 `federated_launch_opens_local_directly_while_saved_ssh_is_unavailable` that
 passes in isolation.
 
+Added 2026-09-16 after the machine's macOS/Xcode update (each confirmed
+failing identically on the pre-merge fork master and/or clean upstream
+master `b88e8116`, so none are fork regressions):
+`events_subscribe_streams_output_and_agent_status_events`,
+`live_server_holds_one_pty_master_fd_per_pane`,
+`same_tab_geometry_follows_meaningful_client_activity`,
+`api_pane_output_is_fanned_out_as_pane_surface_updates`,
+`live_handoff_carries_more_panes_than_one_scm_rights_message` (ptmx fd
+count off by one on macOS), and upstream's `scripts.test_release`
+hotfix test (its temp-repo `git apply --3way` reports "No valid
+patches" under local git 2.55.0; fails on clean upstream too).
+
 ## Log
 
 ### 2026-09-09 (sync tooling)
@@ -365,3 +377,43 @@ passes in isolation.
   chrome-preferences path. Replaced the
   `vertical_tabs_ignores_sidebar_collapse_...` test with collapse/restore
   + tab-bar-hiding-ignored coverage.
+
+### 2026-09-16 (upstream sync)
+
+- Merged upstream/master `c7a7cc45..b88e8116` (106 commits, incl. the
+  v0.9.1 release-metadata sync). Two conflicts, both per-map:
+  justfile `maintenance-test` (upstream added `test_release` +
+  `test_windows_input` + bun release tests + a new `test-windows-input`
+  recipe; kept all plus the fork's `test_fork_changelog_check`) and
+  tabs.rs EOF (upstream appended a `max_tab_scroll` unit test and
+  reworked `max_tab_scroll`/`last_visible_tab` + muted tab-label style;
+  took upstream's changes, kept all 736 strip lines). Everything else
+  auto-merged disjoint (`shell/config.rs`, `shell/state.rs`,
+  `shell/mouse.rs`, `shell/render.rs`, `config/model.rs`,
+  `config-reference.json`, `AGENTS.md`, `tests/mod.rs`); map drift test
+  confirmed all mapped symbols intact.
+- Notable fixes absorbed: stable release promotion from protected
+  previews (#4241), Windows VT input recovery + mouse/pwsh fixes (#4269,
+  #4257, #4295, #4297), cursor-based text input editing (#3698),
+  ctrl-hover highlighting + wrapped links (#4074), whole-word selection
+  during drag (#3969) + live selections during pane output (#4193),
+  client location reconciliation after pane moves (#4171, #4159), saved
+  machine screen restore (#4126) + stale surface rejection (#4141),
+  overflowing tab strips reveal the full last tab (#4152), muted
+  sidebar/tab label readability (#4062), machine connection metadata
+  caching (#4256), exact session-name deletion (#4233), unloaded session
+  preservation (#4190, #4125), kitty CSI-u + CSI-tilde F-keys (#2378,
+  #4067), super-modified keys (#4044), pixel-mouse integer cell pitch
+  (#4140), SSH bridge cleanup/backoff (#4083), Letta Code detection
+  (#3107), opencode tui.json + v2 lifecycle (#4250, #3757), worktree
+  removal improvements (#4238, #3315).
+- Validation: drift test green, vertical_tabs 21/21, pinned clippy
+  clean, nextest 3489/3495 (6 failures — all confirmed on unmerged
+  trees after the macOS/Xcode update; see the known-failures note above,
+  plus the documented `pane_info_and_subscriptions_...` baseline),
+  maintenance-test 144/145 (upstream `test_release` hotfix test, fails
+  on clean upstream too), ui-hot-path 6/6, `make build` + `make install`
+  refreshed the daily symlink. The Xcode license had to be re-accepted
+  mid-sync (`sudo xcodebuild -license accept`) before anything compiled.
+- Fork point: upstream `b88e8116` ("test: add local windows input
+  gauntlet (#4298)").
