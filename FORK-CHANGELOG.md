@@ -245,6 +245,14 @@ count off by one on macOS), and upstream's `scripts.test_release`
 hotfix test (its temp-repo `git apply --3way` reports "No valid
 patches" under local git 2.55.0; fails on clean upstream too).
 
+Observed 2026-09-21 on the merged `b88e8116..28360107` tree: the six
+Xcode-update failures above no longer reproduce. The full suite ran 3557
+tests, 3556 passed, 1 failed
+(`pane_info_and_subscriptions_expose_done_agent_status`), 6 skipped. The
+current baseline is that single test plus the `scripts.test_release` git
+2.55.0 hotfix failure; a reappearance of the others is now a regression
+signal again, not background noise.
+
 ## Log
 
 ### 2026-09-09 (sync tooling)
@@ -417,3 +425,49 @@ patches" under local git 2.55.0; fails on clean upstream too).
   mid-sync (`sudo xcodebuild -license accept`) before anything compiled.
 - Fork point: upstream `b88e8116` ("test: add local windows input
   gauntlet (#4298)").
+
+### 2026-09-21 (upstream sync)
+
+- Merged upstream/master `b88e8116..28360107` (29 commits). Clean merge,
+  zero conflicts: every overlapping file split into disjoint regions
+  (`shell/mouse.rs` navigator scrollbar + navigator row clicks vs the
+  strip's wheel/drop-index/clamp hunks; `shell/state.rs` navigator
+  fields + tab-close confirmation vs the strip's config/layout fields;
+  `config/model.rs` `clear_pane` keybinding vs `ui.vertical_tabs*`;
+  `config-reference.json` `keys.clear_pane` vs the `ui.*` entries;
+  `AGENTS.md` detection-testing policy vs the fork-rules section;
+  `tests/mod.rs` `mod close_tab;`/`restore_error` vs `mod
+  vertical_tabs;`). Upstream did not touch `tabs.rs`, `config.rs`,
+  `render.rs`, `justfile`, or the Makefile in this range, and no
+  `src/protocol/wire.rs` change means no protocol conflict to flag.
+- Notable fixes absorbed: agent completion vs startup/session changes
+  (#4457), droid scrollback-clear requests (#4432), forwarded ssh agent
+  refresh after reconnect (#4443), per-endpoint navigator tab/pane
+  indexing (#4426), session layout preservation across shutdown and
+  restore failures (#4400), last-tab close confirmation (#4409),
+  terminal-less attach rejection (#4395), event-subscription draining +
+  history-loss reporting (#4225), explicit worktree workspace membership
+  (#4301), navigator visibility in light themes (#4408), delayed mouse
+  reports with confirmed keyboard input (#4247), codex custom interrupt
+  keys (#4196), kiro live-control/OSC detection (#4372), cursor recovery
+  during animated redraws (#4404), Windows cursor redraw + settle
+  deadlines (#4389), go-to picker lists every agent and terminal (#4384),
+  configurable pane screen/scrollback clearing with a new vendored
+  libghostty-vt patch (#4383), sidebar agent reveal on cycle (#4355),
+  socket error request-id preservation (#4353), ssh compression (#4340),
+  grok detection with custom/disabled OSC signals (#4337), Windows mouse
+  capture during refresh (#4319).
+- Validation: drift test green, vertical_tabs 21/21, pinned clippy clean,
+  nextest 3556/3557 (only the documented
+  `pane_info_and_subscriptions_...` baseline), maintenance-test 148 with
+  1 error (upstream `scripts.test_release` hotfix test under local git
+  2.55.0, still failing the same way), ui-hot-path 6/6, `cargo fmt
+  --check` clean, `make build` + `make install` refreshed the daily
+  symlink.
+- Environment note: this machine had lost both `cargo-nextest` and
+  `just` between syncs (no binary anywhere on disk). Both were
+  reinstalled with `cargo install --locked`; if the sync runbook reports
+  `no such command: nextest` or `just: command not found`, reinstall
+  rather than reworking the validation steps.
+- Fork point: upstream `28360107` ("fix: distinguish agent completion
+  from startup and session changes (#4457)").
