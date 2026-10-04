@@ -537,6 +537,7 @@ pub(super) enum ClientContextMenuTarget {
         is_git: bool,
         is_linked_worktree: bool,
         has_worktree_children: bool,
+        close_group: bool,
         collapsed: bool,
     },
     Tab {
@@ -574,6 +575,7 @@ pub(super) struct ClientTabCloseConfirmation {
 #[derive(Debug)]
 pub(super) struct ClientConfirmCloseOverlay {
     pub(super) workspace_id: String,
+    pub(super) close_group: bool,
     pub(super) tab_target: Option<ClientTabCloseConfirmation>,
     pub(super) title: String,
     pub(super) detail: String,
@@ -722,7 +724,17 @@ pub(crate) enum ClientShellNotificationEffect {
     System {
         title: String,
         body: Option<String>,
+        #[cfg(windows)]
+        target: Option<ClientSystemNotificationTarget>,
     },
+}
+
+#[cfg(windows)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClientSystemNotificationTarget {
+    pub(crate) endpoint_id: ClientEndpointId,
+    pub(crate) boot_id: String,
+    pub(crate) pane_id: String,
 }
 
 pub(super) struct ClientPendingNotification {
@@ -847,6 +859,7 @@ pub(super) struct ClientCopyModeState {
 }
 
 pub(crate) struct ClientShellState {
+    pub(super) machine_diagnostics: super::machine_diagnostics::MachineDiagnostics,
     pub(super) config: ClientShellConfig,
     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
     pub(super) active_snapshot_generation: Option<u64>,
@@ -1010,13 +1023,14 @@ impl ClientShellState {
                 .extend(saved.collapsed_groups);
         }
         Self {
+            machine_diagnostics: Default::default(),
             config,
             snapshot: None,
             active_snapshot_generation: None,
             pane_surface_generation: None,
             pane_surface: None,
             pending_pane_surface: None,
-            graphics: crate::kitty_graphics::surface::ClientState::default(),
+            graphics: crate::kitty_graphics::surface::ClientState::new(),
             graphics_cell_size: crate::kitty_graphics::HostCellSize {
                 width_px: 1,
                 height_px: 1,

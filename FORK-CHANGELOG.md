@@ -471,3 +471,33 @@ signal again, not background noise.
   rather than reworking the validation steps.
 - Fork point: upstream `28360107` ("fix: distinguish agent completion
   from startup and session changes (#4457)").
+
+### 2026-10-04 (upstream sync)
+
+- Merged upstream/master `28360107..e35f3937` (81 commits). Clean merge,
+  no conflicts. The eight shared-file overlap candidates auto-merged. Rechecked
+  the map: vertical-tabs config/layout, render hook, mouse drop/wheel/scroll
+  branches, model keys, and reference entries remain present; upstream
+  `justfile` recipes and `AGENTS.md` policy changes remain intact.
+- Notable fixes absorbed: hidden-pane memory and pane spawn sizing (#4873),
+  terminal snapshot/read allocation reductions (#4845, #4847), native Kitty
+  graphics rendering and row-shift scrolling (#4561, #4711), Windows PTY
+  input/shutdown/attach improvements (#4850, #4872, #4777), native actionable
+  notifications (#4803), worktree restore/grouping fixes (#4770, #4772),
+  agent resume commands (#4687), Codex completion hooks (#4756), and Hermes
+  Python-wrapper detection (#4911). The range also includes v0.9.2/v0.9.3
+  metadata and documentation syncs.
+- Protocol check: upstream `wire.rs` changes are not fork-overlap conflicts;
+  `PROTOCOL_VERSION` remains 22. The published v0.9.3 stable tag and latest
+  preview `preview-2026-09-29-8e78f929d8f0` both use version 22, and their
+  `wire.rs` matches upstream/master, so no version bump was needed.
+- Validation: map drift green, vertical_tabs 21/21, pinned clippy clean; the
+  second nextest run passed 3734/3735 with only the documented
+  `pane_info_and_subscriptions_expose_done_agent_status` baseline. The first
+  run also hit the known federated-launch flake and an upstream shell-command
+  test race (file created before its contents were written); both passed on
+  rerun/isolated execution. `maintenance-test` ran 154 tests with the known
+  `scripts.test_release` error under local git 2.55.0; ui-hot-path 6/6;
+  `make build` and `make install` succeeded and refreshed the daily symlink.
+- Rollback anchor: `pre-sync/2026-10-04` (at the pre-merge fork head).
+  Not pushed. New fork point: upstream `e35f3937`.
