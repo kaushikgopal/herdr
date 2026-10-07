@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,6 +16,7 @@ CHANGELOG = REPO_ROOT / "FORK-CHANGELOG.md"
 # here; when this test fails after an upstream pull, a symbol moved or died
 # and the map needs updating.
 MAPPED_SYMBOLS: dict[str, tuple[str, ...]] = {
+    "Makefile": ("ZIG_016",),
     "src/client/shell/tabs.rs": (
         "render_tab_strip",
         "render_tab_strip_group",
@@ -84,6 +89,58 @@ class ForkChangelogCheck(unittest.TestCase):
             agents,
             "AGENTS.md fork rules must keep requiring changelog tracking",
         )
+
+
+class MakefileZigSelection(unittest.TestCase):
+    def test_compiler_selection(self) -> None:
+        make = shutil.which("make")
+        self.assertIsNotNone(make)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            formula = root / "formula"
+            (formula / "bin").mkdir(parents=True)
+            (formula / "bin/zig").touch()
+            # A former manual install must not override the managed compiler.
+            (root / "zig-0.16.0").mkdir()
+            (root / "zig-0.16.0/zig").touch()
+            scripts = {
+                "brew": 'test "$*" = "--prefix zig@0.16" || exit 2\n'
+                        'test -n "$TEST_BREW_PREFIX" || exit 1\n'
+                        'printf "%s\\n" "$TEST_BREW_PREFIX"\n',
+                "cargo": 'printf "%s\\n" "$ZIG"\n',
+                "zig": "exit 0\n",
+            }
+            for name, body in scripts.items():
+                script = bin_dir / name
+                script.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+                script.chmod(0o755)
+            env = {
+                "HOME": str(root),
+                "PATH": f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
+            }
+            cases = (
+                ("homebrew", str(formula), None, [], str(formula / "bin/zig")),
+                ("path fallback", "", None, [], str(bin_dir / "zig")),
+                ("environment override", str(formula), "/explicit/zig", [], "/explicit/zig"),
+                ("command-line override", str(formula), "/env/zig", ["ZIG=/cli/zig"], "/cli/zig"),
+            )
+            for name, prefix, override, args, expected in cases:
+                with self.subTest(name=name):
+                    case_env = {**env, "TEST_BREW_PREFIX": prefix}
+                    if override is not None:
+                        case_env["ZIG"] = override
+                    result = subprocess.run(
+                        [make, "--no-print-directory", "-s", "-f", str(REPO_ROOT / "Makefile"), "build", *args],
+                        env=case_env,
+                        cwd=root,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    self.assertEqual(result.stdout.strip(), expected)
+
 
 
 if __name__ == "__main__":

@@ -10,16 +10,14 @@ RUST_BIN :=
 endif
 export PATH := $(RUST_BIN):$(PATH)
 
-# The vendored libghostty-vt pins its Zig version in build.rs (0.16.0 since
-# the 2026-09-11 upstream sync; older Zig hard-fails the build). Prefer the
-# pinned install under ~/zig-0.16.0, then plain `zig`, then brew's keg-only
-# 0.15. An explicit ZIG from the environment or command line always wins.
+# Vendored libghostty-vt requires Zig 0.16.0. Prefer Homebrew's keg-only
+# zig@0.16 over an unversioned compiler on PATH. Explicit ZIG wins.
 ifeq ($(filter environment command line,$(origin ZIG)),)
-ZIG_016 := $(HOME)/zig-0.16.0/zig
+ZIG_016 := $(shell brew --prefix zig@0.16 2>/dev/null)/bin/zig
 ifneq ($(wildcard $(ZIG_016)),)
 export ZIG := $(ZIG_016)
 else
-export ZIG := $(shell command -v zig 2>/dev/null || echo /opt/homebrew/opt/zig@0.15/bin/zig)
+export ZIG := $(shell command -v zig 2>/dev/null || echo zig)
 endif
 endif
 

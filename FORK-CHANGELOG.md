@@ -137,11 +137,11 @@ config + sessions) / `make stop-dev` / `make test` / `make check` / `make
 install`. The repo's canonical runner is still `just`; the Makefile exists
 because debug-vs-stable toolchain quirks are easy to get wrong (see gotchas
 below). Build targets resolve the toolchain pins themselves — the rustup
-toolchain on PATH and `ZIG` (prefers `~/zig-0.16.0/zig`, env/command-line
-override wins) — so make-driven builds track the vendored libghostty-vt's
-current Zig requirement. There is deliberately no stop-release: stopping
-the live server is `herdr server stop` (kills all panes/agents) and should
-not sit one tab-completion away.
+toolchain on PATH and `ZIG` (prefers Homebrew's `zig@0.16` via
+`ZIG_016`, env/command-line override wins) — so make-driven builds track
+the vendored libghostty-vt's current Zig requirement. There is deliberately
+no stop-release: stopping the live server is `herdr server stop` (kills all
+panes/agents) and should not sit one tab-completion away.
 
 `make install` symlinks `target/release/herdr` to
 `$XDG_BIN_HOME/herdr` (default `~/.local/bin`; fish PATH precedence puts
@@ -152,6 +152,9 @@ back. If PATH precedence changes, `herdr` silently reverts to brew
 byte-identical to stable): server, agent, pane, workspace, tab, session,
 machine, api, config, worktree, notification, integration subcommands all
 work against the running server.
+
+**Tests:** `scripts/test_fork_changelog_check.py` covers Homebrew compiler
+selection, PATH fallback, and environment/command-line overrides.
 
 ### 3. Upstream sync tooling — `/sync-upstream` + drift test
 
@@ -203,11 +206,12 @@ points at the stale map entry.
   Homebrew's newer Rust fails `clippy -- -D warnings` on untouched upstream
   files. The Makefile prepends the matching rustup toolchain to PATH.
 - **Builds need Zig 0.16.0.** Upstream's libghostty-vt upgrade (425c8617)
-  hard-fails older Zig in build.rs. System zig is 0.15.2 (brew zig@0.15,
-  kept for other work); 0.16.0 is installed at ~/zig-0.16.0. Make targets
-  export `ZIG` themselves (env override wins); plain `cargo` invocations
-  still need `ZIG=$HOME/zig-0.16.0/zig` exported by hand. The
-  `/sync-upstream` build step verifies the make path on every sync.
+  hard-fails older Zig in build.rs. Install `zig@0.16` with Homebrew
+  (tracked in the dotfiles Brewfile). Make targets export `ZIG` from
+  `brew --prefix zig@0.16` (env override wins), falling back to PATH on
+  machines without that formula. Plain `cargo` invocations need `ZIG`
+  set to the formula's `bin/zig`. The `/sync-upstream` build step verifies
+  the make path on every sync.
 - **Unknown config keys are ignored** by stock herdr (`#[serde(default)]`,
   no `deny_unknown_fields`), so sharing one `~/.config/herdr/config.toml`
   between stable and fork is safe.
@@ -254,6 +258,20 @@ current baseline is that single test plus the `scripts.test_release` git
 signal again, not background noise.
 
 ## Log
+
+### 2026-10-04 (Homebrew Zig compiler)
+
+- Replaced the manual `~/zig-0.16.0` compiler selection with Homebrew's
+  `zig@0.16`; removed the obsolete Zig 0.15 fallback. Explicit overrides
+  and PATH-based builds on non-Homebrew machines remain supported.
+- Added Makefile compiler-selection behavior tests and mapped `ZIG_016`
+  in the fork drift check.
+- Validation: `make install` rebuilt Ghostty with Homebrew Zig 0.16.0;
+  all five fork maintenance tests passed. `just check` stopped at the
+  documented `pane_info_and_subscriptions_expose_done_agent_status`
+  timeout; `just maintenance-test` passed 154 of 155 tests, with only
+  the documented `scripts.test_release` hotfix patch error. Narrow
+  validation covers this build-helper-only change; no Rust source changed.
 
 ### 2026-09-09 (sync tooling)
 
